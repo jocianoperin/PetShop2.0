@@ -1,12 +1,76 @@
-from rest_framework import viewsets, status
-from rest_framework.decorators import action
+from rest_framework import viewsets, status, permissions
+from rest_framework.decorators import action, permission_classes
+from rest_framework.views import APIView
 from rest_framework.response import Response
+from rest_framework.permissions import AllowAny, IsAuthenticated, IsAdminUser
 from django.db.models import Q
+from django.contrib.auth import authenticate, login, logout
+from django.contrib.auth import get_user_model
+from rest_framework_simplejwt.tokens import RefreshToken
 from .models import Cliente, Animal, Servico, Agendamento, Produto, Venda
 from .serializers import (
     ClienteSerializer, AnimalSerializer, ServicoSerializer,
-    AgendamentoSerializer, ProdutoSerializer, VendaSerializer, VendaCreateSerializer
+    AgendamentoSerializer, ProdutoSerializer, VendaSerializer, 
+    VendaCreateSerializer, UserSerializer
 )
+
+User = get_user_model()
+
+
+class LoginView(APIView):
+    permission_classes = [AllowAny]
+    
+    def post(self, request):
+        username = request.data.get('username')
+        password = request.data.get('password')
+        
+        user = authenticate(username=username, password=password)
+        
+        if user is not None:
+            login(request, user)
+            refresh = RefreshToken.for_user(user)
+            return Response({
+                'refresh': str(refresh),
+                'access': str(refresh.access_token),
+                'user': UserSerializer(user).data
+            })
+        return Response(
+            {'error': 'Credenciais inválidas'}, 
+            status=status.HTTP_401_UNAUTHORIZED
+        )
+
+
+class LogoutView(APIView):
+    permission_classes = [IsAuthenticated]
+    
+    def post(self, request):
+        logout(request)
+        return Response({'message': 'Logout realizado com sucesso'})
+
+
+class UserCreateView(APIView):
+    permission_classes = [IsAdminUser]
+    
+    def post(self, request):
+        # Se for o primeiro usuário, definir como superusuário
+        if User.objects.count() == 0:
+            request.data['is_staff'] = True
+            request.data['is_superuser'] = True
+            
+        serializer = UserSerializer(data=request.data)
+        if serializer.is_valid():
+            user = serializer.save()
+            return Response(serializer.data, status=status.HTTP_201_CREATED)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+
+class UserListView(APIView):
+    permission_classes = [IsAdminUser]
+    
+    def get(self, request):
+        users = User.objects.all()
+        serializer = UserSerializer(users, many=True)
+        return Response(serializer.data)
 
 
 class ClienteViewSet(viewsets.ModelViewSet):

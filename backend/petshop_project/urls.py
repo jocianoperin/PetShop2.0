@@ -18,12 +18,39 @@ from django.contrib import admin
 from django.urls import path, include
 from django.conf import settings
 from django.conf.urls.static import static
+from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
+from api.views import LoginView, LogoutView, UserCreateView, UserListView
 
 urlpatterns = [
     path('admin/', admin.site.urls),
-    path('', include('api.urls')),
+    path('api/', include('api.urls')),
+    
+    # Autenticação
+    path('api/auth/login/', LoginView.as_view(), name='login'),
+    path('api/auth/logout/', LogoutView.as_view(), name='logout'),
+    path('api/auth/token/refresh/', TokenRefreshView.as_view(), name='token_refresh'),
+    
+    # Usuários
+    path('api/users/', UserCreateView.as_view(), name='user-create'),
+    path('api/users/list/', UserListView.as_view(), name='user-list'),
 ]
 
 if settings.DEBUG:
     urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
 
+
+# Configuração do JWT
+REST_FRAMEWORK = {
+    'DEFAULT_AUTHENTICATION_CLASSES': (
+        'rest_framework_simplejwt.authentication.JWTAuthentication',
+    )
+}
+
+from datetime import timedelta
+
+SIMPLE_JWT = {
+    'ACCESS_TOKEN_LIFETIME': timedelta(hours=12),
+    'REFRESH_TOKEN_LIFETIME': timedelta(days=1),
+    'ROTATE_REFRESH_TOKENS': True,
+    'BLACKLIST_AFTER_ROTATION': True,
+}

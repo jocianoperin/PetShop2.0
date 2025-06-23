@@ -1,291 +1,256 @@
-"use client"
+'use client';
 
-import { useState, useEffect } from "react"
-import { LoginForm } from "@/components/login-form"
-import { Dashboard } from "@/components/dashboard"
-import { FinanceiroPage } from "@/components/financeiro-page"
-import { AgendaPage } from "@/components/agenda-page"
-import { HotelPage } from "@/components/hotel-page"
-import { PetsPage } from "@/components/pets-page"
-import { PromocoesPage } from "@/components/promocoes-page"
-import { RelatoriosPage } from "@/components/relatorios-page"
-import { ConfiguracoesPage } from "@/components/configuracoes-page"
-import { Sidebar } from "@/components/sidebar"
-import { Header } from "@/components/header"
-import { NotificationsPanel } from "@/components/notifications-panel"
-import { MobileNavigation } from "@/components/mobile-navigation"
-import { MobileHeader } from "@/components/mobile-header"
-import { MobileProfilePanel } from "@/components/mobile-profile-panel"
-import { MobileNotificationsPanel } from "@/components/mobile-notifications-panel"
-import { MobileFab } from "@/components/mobile-fab"
-import { ThemeProvider } from "@/components/theme-provider"
-import { useMediaQuery } from "@/hooks/use-media-query"
+import { useState, useEffect, Suspense } from 'react';
+import { useRouter } from 'next/navigation';
+import dynamic from 'next/dynamic';
+import { useAuth } from '@/contexts/AuthProvider';
+import { LoginForm } from '@/components/LoginForm';
+import { ThemeProvider } from '@/components/theme-provider';
+import { Sidebar } from '@/components/sidebar';
+import { Header } from '@/components/header';
+import Navbar from '@/components/Navbar';
+import type { User } from '@/types';
 
-export default function App() {
-  const [isLoggedIn, setIsLoggedIn] = useState(false)
-  const [currentPage, setCurrentPage] = useState("dashboard")
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
-  const [notificationsOpen, setNotificationsOpen] = useState(false)
-  const [notificationsPinned, setNotificationsPinned] = useState(false)
-  const [unreadNotifications, setUnreadNotifications] = useState(6)
+// Componente de loading
+function LoadingSpinner() {
+  return (
+    <div className="flex items-center justify-center min-h-screen">
+      <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-indigo-500"></div>
+    </div>
+  );
+}
 
-  // Mobile states
-  const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
-  const [mobileProfileOpen, setMobileProfileOpen] = useState(false)
-  const [mobileNotificationsOpen, setMobileNotificationsOpen] = useState(false)
+// Tipos para as páginas disponíveis no aplicativo
+type AppPage = 'dashboard' | 'products' | 'sales' | 'customers' | 'reports' | 'settings';
 
-  const isMobile = useMediaQuery("(max-width: 1024px)")
+// Interface para o estado da UI
+interface UIState {
+  sidebarCollapsed: boolean;
+  notificationsOpen: boolean;
+  notificationsPinned: boolean;
+  mobileMenuOpen: boolean;
+  mobileProfileOpen: boolean;
+  mobileNotificationsOpen: boolean;
+}
 
-  const handleLogin = (username: string, password: string) => {
-    if (username === "admin" && password === "123") {
-      setIsLoggedIn(true)
-      setCurrentPage("dashboard")
+// Componente principal da aplicação
+function MainApp() {
+  // Estado para controlar a página atual
+  const [currentPage, setCurrentPage] = useState<AppPage>('dashboard');
+  
+  // Estado para controlar a interface do usuário
+  const [uiState, setUiState] = useState<UIState>({
+    sidebarCollapsed: false,
+    notificationsOpen: false,
+    notificationsPinned: false,
+    mobileMenuOpen: false,
+    mobileProfileOpen: false,
+    mobileNotificationsOpen: false,
+  });
+
+  const { logout, user } = useAuth() as { logout: () => void; user: User | null };
+  const router = useRouter();
+
+  // Redireciona para a raiz se tentar acessar /dashboard diretamente
+  useEffect(() => {
+    if (typeof window !== 'undefined' && window.location.pathname === '/dashboard') {
+      window.history.replaceState({}, '', '/');
     }
-  }
+  }, []);
 
+  // Atualiza um estado específico da UI
+  const updateUiState = (updates: Partial<UIState>) => {
+    setUiState(prev => ({
+      ...prev,
+      ...updates,
+    }));
+  };
+
+  // Função de logout
   const handleLogout = () => {
-    setIsLoggedIn(false)
-    setCurrentPage("dashboard")
-    setSidebarCollapsed(false)
-    setNotificationsOpen(false)
-    setNotificationsPinned(false)
-    setMobileMenuOpen(false)
-    setMobileProfileOpen(false)
-    setMobileNotificationsOpen(false)
-  }
+    logout();
+    // Reseta o estado da aplicação
+    setCurrentPage('dashboard');
+    setUiState({
+      sidebarCollapsed: false,
+      notificationsOpen: false,
+      notificationsPinned: false,
+      mobileMenuOpen: false,
+      mobileProfileOpen: false,
+      mobileNotificationsOpen: false,
+    });
+  };
 
-  const toggleNotifications = () => {
-    if (isMobile) {
-      setMobileNotificationsOpen(!mobileNotificationsOpen)
-      setMobileProfileOpen(false)
-      setMobileMenuOpen(false)
-    } else {
-      setNotificationsOpen(!notificationsOpen)
-    }
-  }
+  // Navegação entre páginas
+  const navigateTo = (page: AppPage) => {
+    setCurrentPage(page);
+    // Fecha o menu mobile após a navegação
+    updateUiState({ mobileMenuOpen: false });
+  };
 
-  const toggleNotificationsPin = () => {
-    setNotificationsPinned(!notificationsPinned)
-    if (!notificationsPinned) {
-      setNotificationsOpen(true)
-    }
-  }
+  // Componente de carregamento para importações dinâmicas
+  const LoadingSpinner = () => (
+    <div className="flex items-center justify-center h-64">
+      <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-indigo-500"></div>
+    </div>
+  );
 
-  const handleMobileProfileToggle = () => {
-    setMobileProfileOpen((open: boolean) => {
-      if (!open) {
-        setMobileMenuOpen(false)
-        setMobileNotificationsOpen(false)
-      }
-      return !open
-    })
-  }
+  // Importação dinâmica dos componentes das páginas
+  const Dashboard = dynamic(
+    () => import('@/components/dashboard').then((mod) => mod.Dashboard),
+    { ssr: false, loading: LoadingSpinner }
+  );
 
-  const handleMobileMenuToggle = () => {
-    setMobileMenuOpen((open: boolean) => {
-      if (!open) {
-        setMobileProfileOpen(false)
-        setMobileNotificationsOpen(false)
-      }
-      return !open
-    })
-  }
+  // Mapeamento de páginas para componentes
+  const pageComponents: Record<AppPage, React.ReactNode> = {
+    dashboard: <Dashboard />,
+    products: <div className="p-6">Página de Produtos</div>,
+    sales: <div className="p-6">Página de Vendas</div>,
+    customers: <div className="p-6">Página de Clientes</div>,
+    reports: <div className="p-6">Relatórios</div>,
+    settings: <div className="p-6">Configurações</div>,
+  };
 
-  const handleMobileNotificationsToggle = () => {
-    setMobileNotificationsOpen((open: boolean) => {
-      if (!open) {
-        setMobileMenuOpen(false)
-        setMobileProfileOpen(false)
-      }
-      return !open
-    })
-  }
-
-  const handlePageChange = (page: string) => {
-    setCurrentPage(page)
-    // Close mobile panels when navigating
-    if (isMobile) {
-      setMobileMenuOpen(false)
-      setMobileProfileOpen(false)
-      setMobileNotificationsOpen(false)
-    }
-  }
-
-  const handleFabAction = (action: string) => {
-    // Handle FAB actions based on the action type
-    switch (action) {
-      case "new-appointment":
-        setCurrentPage("agenda")
-        // Here you would typically open a new appointment dialog
-        break
-      case "new-pet":
-        setCurrentPage("pets")
-        // Here you would typically open a new pet dialog
-        break
-      case "new-checkin":
-        setCurrentPage("hotel")
-        // Here you would typically open a new check-in dialog
-        break
-      case "new-transaction":
-        setCurrentPage("financeiro")
-        // Here you would typically open a new transaction dialog
-        break
-    }
-  }
-
+  // Renderização condicional baseada na página atual
   const renderPage = () => {
-    switch (currentPage) {
-      case "dashboard":
-        return <Dashboard />
-      case "financeiro":
-        return <FinanceiroPage />
-      case "agenda":
-        return <AgendaPage />
-      case "hotel":
-        return <HotelPage />
-      case "pets":
-        return <PetsPage />
-      case "promocoes":
-        return <PromocoesPage />
-      case "relatorios":
-        return <RelatoriosPage />
-      case "configuracoes":
-        return <ConfiguracoesPage />
-      default:
-        return <Dashboard />
+    try {
+      return (
+        <div className="p-6">
+          {pageComponents[currentPage]}
+        </div>
+      );
+    } catch (error) {
+      console.error(`Erro ao carregar a página ${currentPage}:`, error);
+      return (
+        <div className="p-6">
+          <h2 className="text-xl font-bold text-red-600">Erro ao carregar a página</h2>
+          <p className="text-gray-600">A página não pôde ser carregada. Verifique o console para mais detalhes.</p>
+        </div>
+      );
     }
-  }
+  };
 
-  // Close mobile panels when clicking outside
-  useEffect(() => {
-    const handleClickOutside = (event: MouseEvent) => {
-      if (isMobile) {
-        const target = event.target as Element
-        if (
-          !target.closest("[data-mobile-panel]") &&
-          !target.closest("[data-mobile-trigger]") &&
-          !target.closest("[data-mobile-fab]")
-        ) {
-          setMobileMenuOpen(false)
-          setMobileProfileOpen(false)
-          setMobileNotificationsOpen(false)
-        }
-      } else if (!notificationsPinned && notificationsOpen) {
-        const target = event.target as Element
-        if (!target.closest("[data-notifications-panel]") && !target.closest("[data-notifications-trigger]")) {
-          setNotificationsOpen(false)
-        }
-      }
-    }
-
-    document.addEventListener("mousedown", handleClickOutside)
-    return () => document.removeEventListener("mousedown", handleClickOutside)
-  }, [isMobile, notificationsOpen, notificationsPinned])
-
-  // Auto-collapse sidebar on mobile
-  useEffect(() => {
-    if (isMobile) {
-      setSidebarCollapsed(true)
-      setNotificationsOpen(false)
-      setNotificationsPinned(false)
-    }
-  }, [isMobile])
-
-  if (!isLoggedIn) {
-    return (
-      <ThemeProvider attribute="class" defaultTheme="light" enableSystem>
-        <LoginForm onLogin={handleLogin} />
-      </ThemeProvider>
-    )
-  }
+  // Desestruturação do estado para facilitar o uso
+  const {
+    sidebarCollapsed,
+    notificationsOpen,
+    mobileMenuOpen,
+  } = uiState;
 
   return (
-    <ThemeProvider attribute="class" defaultTheme="light" enableSystem>
-      <div className="flex h-screen bg-gray-50 dark:bg-gray-950">
-        {/* Desktop Sidebar */}
-        {!isMobile && (
-          <Sidebar
+    <div className="min-h-screen bg-gray-50 dark:bg-gray-900 flex flex-col">
+      {/* Navbar */}
+      <Navbar 
+        currentPage={currentPage} 
+        onPageChange={navigateTo} 
+        onMenuToggle={() => updateUiState({ mobileMenuOpen: !uiState.mobileMenuOpen })}
+      />
+      
+      <div className="flex flex-1 overflow-hidden">
+        {/* Sidebar Desktop */}
+        <div className="hidden md:flex">
+          <Sidebar 
             currentPage={currentPage}
-            onPageChange={handlePageChange}
+            onPageChange={navigateTo}
             isCollapsed={sidebarCollapsed}
-            onToggleCollapse={() => setSidebarCollapsed(!sidebarCollapsed)}
+            onToggleCollapse={() => updateUiState({ sidebarCollapsed: !sidebarCollapsed })}
           />
-        )}
-
-        {/* Main Content Area */}
-        <div className="flex-1 flex flex-col min-w-0">
-          {/* Desktop Header */}
-          {!isMobile && (
-            <Header
-              onSidebarToggle={() => setSidebarCollapsed(!sidebarCollapsed)}
-              onNotificationsToggle={toggleNotifications}
-              unreadNotifications={unreadNotifications}
-              onLogout={handleLogout}
-            />
-          )}
-
-          {/* Mobile Header */}
-          {isMobile && <MobileHeader currentPage={currentPage} />}
-
-          {/* Page Content */}
-          <main
-            className={`flex-1 overflow-auto transition-all duration-300 ${
-              !isMobile && notificationsPinned ? "mr-80" : ""
-            } ${isMobile ? "pb-16" : ""}`}
-          >
+        </div>
+        
+        {/* Conteúdo principal */}
+        <div className="flex-1 flex flex-col overflow-hidden">
+          {/* Header */}
+          <Header 
+            onSidebarToggle={() => updateUiState({ sidebarCollapsed: !sidebarCollapsed })}
+            onNotificationsToggle={() => updateUiState({ 
+              notificationsOpen: !notificationsOpen,
+              mobileNotificationsOpen: !uiState.mobileNotificationsOpen 
+            })}
+            unreadNotifications={0}
+            onLogout={handleLogout}
+          />
+          
+          {/* Conteúdo da página */}
+          <main className="flex-1 overflow-y-auto p-4 md:p-6">
             {renderPage()}
           </main>
         </div>
-
-        {/* Desktop Notifications Panel */}
-        {!isMobile && (
-          <div data-notifications-panel>
-            <NotificationsPanel
-              isOpen={notificationsOpen}
-              onToggle={toggleNotifications}
-              isPinned={notificationsPinned}
-              onPin={toggleNotificationsPin}
+      
+        {/* Menu Mobile Overlay */}
+        {mobileMenuOpen && (
+          <div className="md:hidden fixed inset-0 z-40">
+            <div 
+              className="fixed inset-0 bg-black bg-opacity-50 transition-opacity"
+              onClick={() => updateUiState({ mobileMenuOpen: false })}
             />
+            <div className="fixed inset-y-0 left-0 max-w-xs w-full bg-white dark:bg-gray-800 shadow-lg transform transition-transform duration-300 ease-in-out">
+              <Sidebar 
+                currentPage={currentPage}
+                onPageChange={navigateTo}
+                isCollapsed={false}
+                onToggleCollapse={() => {}}
+              />
+            </div>
           </div>
         )}
 
-        {/* Mobile Navigation */}
-        {isMobile && (
-          <>
-            <div data-mobile-trigger>
-              <MobileNavigation
-                currentPage={currentPage}
-                onPageChange={handlePageChange}
-                unreadNotifications={unreadNotifications}
-                onNotificationsToggle={handleMobileNotificationsToggle}
-                onProfileToggle={handleMobileProfileToggle}
-                isOpen={mobileMenuOpen}
-                onToggle={handleMobileMenuToggle}
-              />
+        {/* Notificações Mobile */}
+        {uiState.mobileNotificationsOpen && (
+          <div className="md:hidden fixed inset-0 z-40">
+            <div 
+              className="fixed inset-0 bg-black bg-opacity-50 transition-opacity"
+              onClick={() => updateUiState({ mobileNotificationsOpen: false })}
+            />
+            <div className="fixed inset-y-0 right-0 max-w-xs w-full bg-white dark:bg-gray-800 shadow-lg transform transition-transform duration-300 ease-in-out">
+              <div className="p-4 border-b border-gray-200 dark:border-gray-700">
+                <h3 className="text-lg font-medium text-gray-900 dark:text-white">Notificações</h3>
+              </div>
+              <div className="p-4">
+                <p className="text-gray-600 dark:text-gray-300">Nenhuma notificação nova.</p>
+              </div>
             </div>
-
-            {/* Mobile Panels */}
-            <div data-mobile-panel>
-              <MobileProfilePanel
-                isOpen={mobileProfileOpen}
-                onToggle={handleMobileProfileToggle}
-                onLogout={handleLogout}
-                onNavigate={handlePageChange}
-              />
-
-              <MobileNotificationsPanel
-                isOpen={mobileNotificationsOpen}
-                onToggle={handleMobileNotificationsToggle}
-              />
-            </div>
-
-            {/* Mobile FAB */}
-            <div data-mobile-fab>
-              <MobileFab currentPage={currentPage} onAction={handleFabAction} />
-            </div>
-          </>
+          </div>
         )}
       </div>
+    </div>
+  );
+}
+
+export default function App() {
+  const { isLoading, isAuthenticated } = useAuth();
+  const [isClient, setIsClient] = useState(false);
+  const router = useRouter();
+
+  useEffect(() => {
+    setIsClient(true);
+  }, []);
+
+  // Redireciona para o dashboard se estiver autenticado e tentar acessar a raiz
+  useEffect(() => {
+    if (isClient && isAuthenticated) {
+      // Usando replace para evitar adicionar ao histórico de navegação
+      window.history.replaceState({}, '', '/dashboard');
+    }
+  }, [isClient, isAuthenticated]);
+
+  // Se ainda estiver carregando ou não for cliente, mostrar o spinner
+  if (!isClient || isLoading) {
+    return <LoadingSpinner />;
+  }
+
+  // Se não estiver autenticado, mostrar o formulário de login
+  if (!isAuthenticated) {
+    return (
+      <ThemeProvider attribute="class" defaultTheme="light" enableSystem>
+        <LoginForm onLoginSuccess={() => router.push('/dashboard')} />
+      </ThemeProvider>
+    );
+  }
+
+  // Se estiver autenticado, mostrar o aplicativo principal
+  return (
+    <ThemeProvider attribute="class" defaultTheme="light" enableSystem>
+      <MainApp />
     </ThemeProvider>
-  )
+  );
 }
