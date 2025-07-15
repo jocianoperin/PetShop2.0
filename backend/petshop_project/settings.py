@@ -11,6 +11,8 @@ https://docs.djangoproject.com/en/5.2/ref/settings/
 """
 
 from pathlib import Path
+import os
+from decouple import config
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -66,6 +68,7 @@ INSTALLED_APPS = [
     'rest_framework',
     'corsheaders',
     'rest_framework_simplejwt',
+    'tenants',  # App para gerenciamento multitenant
     'api',
 ]
 
@@ -73,6 +76,8 @@ MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'corsheaders.middleware.CorsMiddleware',
+    'tenants.middleware.TenantMiddleware',  # Resolução de tenant
+    'tenants.middleware.TenantSchemaMiddleware',  # Configuração de schema
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
     'django.contrib.auth.middleware.AuthenticationMiddleware',
@@ -104,12 +109,24 @@ WSGI_APPLICATION = 'petshop_project.wsgi.application'
 # Database
 # https://docs.djangoproject.com/en/5.2/ref/settings/#databases
 
+# Configuração para desenvolvimento (SQLite) e produção (PostgreSQL)
 DATABASES = {
     'default': {
-        'ENGINE': 'django.db.backends.sqlite3',
-        'NAME': BASE_DIR / 'db.sqlite3',
+        'ENGINE': config('DB_ENGINE', default='django.db.backends.sqlite3'),
+        'NAME': config('DB_NAME', default=str(BASE_DIR / 'db.sqlite3')),
+        'USER': config('DB_USER', default=''),
+        'PASSWORD': config('DB_PASSWORD', default=''),
+        'HOST': config('DB_HOST', default=''),
+        'PORT': config('DB_PORT', default=''),
+        'OPTIONS': {
+            # Para PostgreSQL, configurações específicas
+            'options': '-c search_path=public'
+        } if config('DB_ENGINE', default='').startswith('django.db.backends.postgresql') else {},
     }
 }
+
+# Router de banco de dados para multitenant
+DATABASE_ROUTERS = ['tenants.db_router.TenantDatabaseRouter']
 
 
 # Password validation
@@ -173,3 +190,72 @@ CORS_ALLOW_CREDENTIALS = True
 MEDIA_URL = '/media/'
 MEDIA_ROOT = BASE_DIR / 'media'
 
+
+# Configurações Multitenant
+MULTITENANT_SETTINGS = {
+    'DEFAULT_SCHEMA': 'public',
+    'TENANT_MODEL': 'tenants.Tenant',
+    'TENANT_USER_MODEL': 'tenants.TenantUser',
+    'AUTO_CREATE_SCHEMA': True,
+    'AUTO_DROP_SCHEMA': False,  # Segurança: nunca remove schemas automaticamente
+    'TENANT_LIMIT_SET_CALLS': True,
+    'TENANT_CACHE_TIMEOUT': 300,  # 5 minutos
+}
+
+# Configurações de Cache para Multitenant
+CACHES = {
+    'default': {
+        'BACKEND': 'django.core.cache.backends.locmem.LocMemCache',
+        'LOCATION': 'unique-snowflake',
+        'TIMEOUT': 300,
+        'OPTIONS': {
+            'MAX_ENTRIES': 1000,
+        }
+    }
+}
+
+# Configurações de Logging para Multitenant
+LOGGING = {
+    'version': 1,
+    'disable_existing_loggers': False,
+    'formatters': {
+        'tenant_aware': {
+            'format': '[{asctime}] {levelname} [{name}] [Tenant: {tenant}] {message}',
+            'style': '{',
+        },
+        'standard': {
+            'format': '[{asctime}] {levelname} [{name}] {message}',
+            'style': '{',
+        },
+    },
+    'handlers': {
+        'console': {
+            'class': 'logging.StreamHandler',
+            'formatter': 'standard',
+        },
+        'file': {
+            'class': 'logging.FileHandler',
+            'filename': BASE_DIR / 'logs' / 'django.log',
+            'formatter': 'tenant_aware',
+        },
+    },
+    'root': {
+        'handlers': ['console'],
+        'level': 'INFO',
+    },
+    'loggers': {
+        'tenants': {
+            'handlers': ['console', 'file'],
+            'level': 'DEBUG',
+            'propagate': False,
+        },
+        'django.db.backends': {
+            'handlers': ['console'],
+            'level': 'INFO' if DEBUG else 'WARNING',
+            'propagate': False,
+        },
+    },
+}
+
+# Cria diretório de logs se não existir
+os.makedirs(BASE_DIR / 'logs', exist_ok=True)
