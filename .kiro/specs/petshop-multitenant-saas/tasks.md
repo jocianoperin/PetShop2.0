@@ -17,6 +17,7 @@
 
 
 
+
   - [x] 2.1 Criar modelo Tenant no schema compartilhado
 
 
@@ -41,21 +42,36 @@
     - Adicionar métodos para get/set de configurações
     - _Requisitos: 11.1, 11.2_
 
-- [ ] 3. Desenvolver middleware de resolução de tenant
-  - [ ] 3.1 Implementar TenantMiddleware
+- [x] 3. Desenvolver middleware de resolução de tenant
+
+
+
+
+
+
+  - [x] 3.1 Implementar TenantMiddleware
+
+
     - Criar middleware para identificar tenant atual via subdomain
     - Implementar fallback para header X-Tenant-ID
     - Adicionar suporte a identificação via JWT token
     - Implementar tratamento de erros para tenant não encontrado
     - _Requisitos: 2.1, 2.2_
 
-  - [ ] 3.2 Criar sistema de contexto de tenant
+  - [x] 3.2 Criar sistema de contexto de tenant
+
+
+
+
     - Implementar thread-local storage para tenant atual
     - Criar context manager para operações com tenant específico
     - Adicionar decorators para views que requerem tenant
     - _Requisitos: 2.3, 3.3_
 
-- [ ] 4. Implementar database router multitenant
+- [-] 4. Implementar database router multitenant
+
+
+
   - Criar TenantDatabaseRouter para roteamento automático
   - Implementar lógica de seleção de schema baseada no tenant atual
   - Adicionar suporte a operações de leitura e escrita por tenant

@@ -78,6 +78,90 @@ def tenant_required(view_func):
     return wrapper
 
 
+def tenant_admin_required(view_func):
+    """
+    Decorator para views que requerem um tenant válido e usuário admin.
+    
+    Usage:
+        @tenant_admin_required
+        def admin_view(request):
+            tenant = get_current_tenant()
+            # Usuário já é admin do tenant
+    """
+    @wraps(view_func)
+    def wrapper(request, *args, **kwargs):
+        tenant = get_current_tenant()
+        if not tenant:
+            from django.http import JsonResponse
+            return JsonResponse({
+                'error': 'Tenant requerido para esta operação',
+                'code': 'TENANT_REQUIRED'
+            }, status=400)
+        
+        # Verifica se o usuário é admin do tenant
+        if hasattr(request, 'user') and request.user.is_authenticated:
+            from .models import TenantUser
+            try:
+                tenant_user = TenantUser.objects.get(
+                    tenant=tenant,
+                    email=request.user.email,
+                    is_active=True
+                )
+                if tenant_user.role not in ['admin', 'manager']:
+                    return JsonResponse({
+                        'error': 'Permissões de administrador requeridas',
+                        'code': 'ADMIN_REQUIRED'
+                    }, status=403)
+            except TenantUser.DoesNotExist:
+                return JsonResponse({
+                    'error': 'Usuário não encontrado no tenant',
+                    'code': 'USER_NOT_IN_TENANT'
+                }, status=403)
+        else:
+            return JsonResponse({
+                'error': 'Autenticação requerida',
+                'code': 'AUTHENTICATION_REQUIRED'
+            }, status=401)
+        
+        return view_func(request, *args, **kwargs)
+    return wrapper
+
+
+def with_tenant_context(tenant_id_or_subdomain):
+    """
+    Decorator para executar uma view em um contexto de tenant específico.
+    
+    Usage:
+        @with_tenant_context('tenant-subdomain')
+        def cross_tenant_view(request):
+            # Executa no contexto do tenant especificado
+            pass
+    """
+    def decorator(view_func):
+        @wraps(view_func)
+        def wrapper(request, *args, **kwargs):
+            from .models import Tenant
+            
+            # Resolve o tenant
+            try:
+                if len(str(tenant_id_or_subdomain)) == 36:  # UUID
+                    tenant = Tenant.objects.get(id=tenant_id_or_subdomain, is_active=True)
+                else:  # Subdomain
+                    tenant = Tenant.objects.get(subdomain=tenant_id_or_subdomain, is_active=True)
+            except Tenant.DoesNotExist:
+                from django.http import JsonResponse
+                return JsonResponse({
+                    'error': 'Tenant especificado não encontrado',
+                    'code': 'TENANT_NOT_FOUND'
+                }, status=404)
+            
+            # Executa no contexto do tenant
+            with tenant_context(tenant):
+                return view_func(request, *args, **kwargs)
+        return wrapper
+    return decorator
+
+
 def get_tenant_schema_name(tenant_id=None):
     """
     Obtém o nome do schema para um tenant específico ou atual.
@@ -251,3 +335,134 @@ def get_tenant_database_size(tenant):
     except Exception as e:
         print(f"Erro ao obter tamanho do banco do tenant {tenant.name}: {str(e)}")
         return None
+
+
+class TenantContextManager:
+    """
+    Classe para gerenciar contexto de tenant de forma mais avançada.
+    Permite operações em lote e controle fino do contexto.
+    """
+    
+    def __init__(self):
+        self._context_stack = []
+    
+    def push_tenant(self, tenant):
+        """Adiciona um tenant ao stack de contexto"""
+        current_tenant = get_current_tenant()
+        self._context_stack.append(current_tenant)
+        set_current_tenant(tenant)
+        
+        # Configura o schema do banco (apenas para PostgreSQL)
+        if tenant and _is_postgresql():
+            with connection.cursor() as cursor:
+                cursor.execute(f"SET search_path TO {tenant.schema_name}, public")
+    
+    def pop_tenant(self):
+        """Remove o tenant atual do stack e restaura o anterior"""
+        if self._context_stack:
+            previous_tenant = self._context_stack.pop()
+            set_current_tenant(previous_tenant)
+            
+            # Restaura o schema anterior
+            if previous_tenant and _is_postgresql():
+                with connection.cursor() as cursor:
+                    cursor.execute(f"SET search_path TO {previous_tenant.schema_name}, public")
+            elif _is_postgresql():
+                with connection.cursor() as cursor:
+                    cursor.execute("SET search_path TO public")
+    
+    def clear_context(self):
+        """Limpa todo o contexto de tenant"""
+        self._context_stack.clear()
+        set_current_tenant(None)
+        if _is_postgresql():
+            with connection.cursor() as cursor:
+                cursor.execute("SET search_path TO public")
+
+
+# Instância global do gerenciador de contexto
+_tenant_context_manager = TenantContextManager()
+
+
+def push_tenant_context(tenant):
+    """Adiciona um tenant ao contexto atual"""
+    _tenant_context_manager.push_tenant(tenant)
+
+
+def pop_tenant_context():
+    """Remove o tenant atual do contexto"""
+    _tenant_context_manager.pop_tenant()
+
+
+def clear_tenant_context():
+    """Limpa todo o contexto de tenant"""
+    _tenant_context_manager.clear_context()
+
+
+@contextmanager
+def multi_tenant_context(*tenants):
+    """
+    Context manager para executar operações em múltiplos tenants sequencialmente.
+    
+    Usage:
+        with multi_tenant_context(tenant1, tenant2, tenant3) as tenant_iterator:
+            for tenant in tenant_iterator:
+                # Operações executadas no contexto de cada tenant
+                clientes = Cliente.objects.all()
+    """
+    original_tenant = get_current_tenant()
+    
+    def tenant_iterator():
+        for tenant in tenants:
+            with tenant_context(tenant):
+                yield tenant
+    
+    try:
+        yield tenant_iterator()
+    finally:
+        # Restaura o tenant original
+        set_current_tenant(original_tenant)
+        if original_tenant and _is_postgresql():
+            with connection.cursor() as cursor:
+                cursor.execute(f"SET search_path TO {original_tenant.schema_name}, public")
+        elif _is_postgresql():
+            with connection.cursor() as cursor:
+                cursor.execute("SET search_path TO public")
+
+
+def get_tenant_from_request(request):
+    """
+    Extrai o tenant de um request Django.
+    Útil para views que precisam acessar o tenant diretamente.
+    
+    Args:
+        request: HttpRequest object
+    
+    Returns:
+        Tenant: Instância do tenant ou None
+    """
+    return getattr(request, 'tenant', None)
+
+
+def ensure_tenant_context(tenant):
+    """
+    Garante que um tenant específico está no contexto atual.
+    Se não estiver, define o tenant no contexto.
+    
+    Args:
+        tenant: Instância do modelo Tenant
+    
+    Returns:
+        bool: True se o contexto foi alterado, False se já estava correto
+    """
+    current_tenant = get_current_tenant()
+    if current_tenant != tenant:
+        set_current_tenant(tenant)
+        
+        # Configura o schema do banco (apenas para PostgreSQL)
+        if tenant and _is_postgresql():
+            with connection.cursor() as cursor:
+                cursor.execute(f"SET search_path TO {tenant.schema_name}, public")
+        
+        return True
+    return False

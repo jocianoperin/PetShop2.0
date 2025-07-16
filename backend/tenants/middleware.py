@@ -1,7 +1,11 @@
 import threading
+import jwt
 from django.http import JsonResponse
 from django.utils.deprecation import MiddlewareMixin
 from django.db import connection
+from django.conf import settings
+from rest_framework_simplejwt.tokens import UntypedToken
+from rest_framework_simplejwt.exceptions import InvalidToken, TokenError
 from .models import Tenant
 from .utils import get_current_tenant, set_current_tenant
 
@@ -11,7 +15,8 @@ class TenantMiddleware(MiddlewareMixin):
     Middleware para resolução automática de tenant baseado em:
     1. Subdomínio (tenant.exemplo.com)
     2. Header X-Tenant-ID
-    3. Token JWT (futuro)
+    3. Token JWT (tenant_id ou tenant_subdomain no payload)
+    4. Parâmetro de query (apenas desenvolvimento)
     """
 
     def process_request(self, request):
@@ -25,7 +30,11 @@ class TenantMiddleware(MiddlewareMixin):
             if not tenant:
                 tenant = self._resolve_by_header(request)
             
-            # Método 3: Fallback para parâmetro de query (desenvolvimento)
+            # Método 3: Fallback para JWT token
+            if not tenant:
+                tenant = self._resolve_by_jwt_token(request)
+            
+            # Método 4: Fallback para parâmetro de query (desenvolvimento)
             if not tenant:
                 tenant = self._resolve_by_query_param(request)
             
@@ -45,14 +54,26 @@ class TenantMiddleware(MiddlewareMixin):
                     }, status=400)
                     
         except Tenant.DoesNotExist:
+            # Log do erro para debugging
+            import logging
+            logger = logging.getLogger('tenants')
+            logger.warning(f'Tenant não encontrado para request: {request.get_host()}{request.path}')
+            
             return JsonResponse({
                 'error': 'Tenant não encontrado',
-                'code': 'TENANT_NOT_FOUND'
+                'code': 'TENANT_NOT_FOUND',
+                'details': 'O tenant especificado não existe ou está inativo'
             }, status=404)
         except Exception as e:
+            # Log do erro para debugging
+            import logging
+            logger = logging.getLogger('tenants')
+            logger.error(f'Erro na resolução do tenant: {str(e)}', exc_info=True)
+            
             return JsonResponse({
-                'error': f'Erro na resolução do tenant: {str(e)}',
-                'code': 'TENANT_RESOLUTION_ERROR'
+                'error': 'Erro na resolução do tenant',
+                'code': 'TENANT_RESOLUTION_ERROR',
+                'details': 'Erro interno do servidor ao identificar o tenant'
             }, status=500)
 
     def process_response(self, request, response):
@@ -88,6 +109,51 @@ class TenantMiddleware(MiddlewareMixin):
                 return Tenant.objects.get(id=tenant_id, is_active=True)
             except (Tenant.DoesNotExist, ValueError):
                 pass
+        
+        return None
+
+    def _resolve_by_jwt_token(self, request):
+        """Resolve tenant pelo JWT token"""
+        auth_header = request.headers.get('Authorization')
+        if not auth_header or not auth_header.startswith('Bearer '):
+            return None
+        
+        token = auth_header.split(' ')[1]
+        
+        try:
+            # Valida o token JWT usando django-rest-framework-simplejwt
+            UntypedToken(token)
+            
+            # Decodifica o token para extrair o tenant_id
+            decoded_token = jwt.decode(
+                token, 
+                settings.SECRET_KEY, 
+                algorithms=['HS256'],
+                options={"verify_signature": False}  # Já validado pelo UntypedToken
+            )
+            
+            # Procura por tenant_id no payload do token
+            tenant_id = decoded_token.get('tenant_id')
+            if tenant_id:
+                try:
+                    return Tenant.objects.get(id=tenant_id, is_active=True)
+                except (Tenant.DoesNotExist, ValueError):
+                    pass
+            
+            # Fallback: procura por tenant_subdomain no payload
+            tenant_subdomain = decoded_token.get('tenant_subdomain')
+            if tenant_subdomain:
+                try:
+                    return Tenant.objects.get(subdomain=tenant_subdomain, is_active=True)
+                except Tenant.DoesNotExist:
+                    pass
+                    
+        except (InvalidToken, TokenError, jwt.DecodeError, jwt.InvalidTokenError):
+            # Token inválido ou expirado - não retorna erro, apenas None
+            pass
+        except Exception:
+            # Outros erros - não retorna erro, apenas None
+            pass
         
         return None
 
