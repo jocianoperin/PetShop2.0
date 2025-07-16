@@ -112,6 +112,27 @@ class Agendamento(TenantAwareModel):
             from django.core.exceptions import ValidationError
             raise ValidationError('Serviço e agendamento devem pertencer ao mesmo tenant')
     
+    def save(self, *args, **kwargs):
+        """Override save to ensure tenant consistency and run validations"""
+        # Se o tenant não foi definido mas temos um animal, usar o tenant do animal
+        if not self.tenant_id and self.animal:
+            self.tenant = self.animal.tenant
+        
+        # Validar que animal, serviço e agendamento pertencem ao mesmo tenant
+        if self.animal and self.tenant and self.animal.tenant != self.tenant:
+            from django.core.exceptions import ValidationError
+            raise ValidationError('Animal e agendamento devem pertencer ao mesmo tenant')
+        if self.servico and self.tenant and self.servico.tenant != self.tenant:
+            from django.core.exceptions import ValidationError
+            raise ValidationError('Serviço e agendamento devem pertencer ao mesmo tenant')
+        
+        # Validar que animal e serviço pertencem ao mesmo tenant
+        if self.animal and self.servico and self.animal.tenant != self.servico.tenant:
+            from django.core.exceptions import ValidationError
+            raise ValidationError('Animal e serviço devem pertencer ao mesmo tenant')
+        
+        super().save(*args, **kwargs)
+    
     class Meta:
         ordering = ['-data_hora']
 
@@ -164,6 +185,19 @@ class Venda(TenantAwareModel):
             from django.core.exceptions import ValidationError
             raise ValidationError('Cliente e venda devem pertencer ao mesmo tenant')
     
+    def save(self, *args, **kwargs):
+        """Override save to ensure tenant consistency and run validations"""
+        # Se o tenant não foi definido mas temos um cliente, usar o tenant do cliente
+        if not self.tenant_id and self.cliente:
+            self.tenant = self.cliente.tenant
+        
+        # Validar que cliente e venda pertencem ao mesmo tenant
+        if self.cliente and self.tenant and self.cliente.tenant != self.tenant:
+            from django.core.exceptions import ValidationError
+            raise ValidationError('Cliente e venda devem pertencer ao mesmo tenant')
+        
+        super().save(*args, **kwargs)
+    
     class Meta:
         ordering = ['-data_venda']
 
@@ -186,6 +220,27 @@ class ItemVenda(TenantAwareModel):
         if self.produto and self.tenant and self.produto.tenant != self.tenant:
             from django.core.exceptions import ValidationError
             raise ValidationError('Produto e item de venda devem pertencer ao mesmo tenant')
+    
+    def save(self, *args, **kwargs):
+        """Override save to ensure tenant consistency and run validations"""
+        # Se o tenant não foi definido mas temos uma venda, usar o tenant da venda
+        if not self.tenant_id and self.venda:
+            self.tenant = self.venda.tenant
+        
+        # Validar que venda, produto e item pertencem ao mesmo tenant
+        if self.venda and self.tenant and self.venda.tenant != self.tenant:
+            from django.core.exceptions import ValidationError
+            raise ValidationError('Venda e item de venda devem pertencer ao mesmo tenant')
+        if self.produto and self.tenant and self.produto.tenant != self.tenant:
+            from django.core.exceptions import ValidationError
+            raise ValidationError('Produto e item de venda devem pertencer ao mesmo tenant')
+        
+        # Validar que venda e produto pertencem ao mesmo tenant
+        if self.venda and self.produto and self.venda.tenant != self.produto.tenant:
+            from django.core.exceptions import ValidationError
+            raise ValidationError('Venda e produto devem pertencer ao mesmo tenant')
+        
+        super().save(*args, **kwargs)
     
     @property
     def subtotal(self):

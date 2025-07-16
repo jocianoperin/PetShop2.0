@@ -388,3 +388,167 @@ def tenant_feature_required(feature_name):
             return view_func(request, *args, **kwargs)
         return wrapper
     return decorator
+
+
+class TenantPermissionMixin:
+    """
+    Mixin para ViewSets que adiciona funcionalidade tenant-aware.
+    Garante isolamento de dados e validações de acesso por tenant.
+    """
+    
+    # Permissões padrão para ViewSets tenant-aware
+    permission_classes = [TenantDataIsolationPermission]
+    
+    def get_queryset(self):
+        """
+        Retorna queryset filtrado pelo tenant atual.
+        Sobrescreve o método padrão para garantir isolamento.
+        """
+        queryset = super().get_queryset()
+        
+        # Verificar se o modelo é tenant-aware
+        if hasattr(queryset.model, 'objects') and hasattr(queryset.model.objects, 'get_queryset'):
+            # Usar o manager tenant-aware se disponível
+            return queryset.model.objects.all()
+        
+        # Fallback: filtrar manualmente por tenant
+        tenant = get_current_tenant()
+        if tenant and hasattr(queryset.model, 'tenant'):
+            return queryset.filter(tenant=tenant)
+        
+        return queryset
+    
+    def perform_create(self, serializer):
+        """
+        Garante que objetos criados sejam associados ao tenant atual.
+        """
+        tenant = get_current_tenant()
+        if not tenant:
+            raise PermissionDenied("Tenant requerido para criar objetos")
+        
+        # Adicionar tenant ao objeto se o modelo suporta
+        if hasattr(serializer.Meta.model, 'tenant'):
+            serializer.save(tenant=tenant)
+        else:
+            serializer.save()
+    
+    def perform_update(self, serializer):
+        """
+        Valida que atualizações respeitam o isolamento de tenant.
+        """
+        tenant = get_current_tenant()
+        instance = serializer.instance
+        
+        # Verificar se o objeto pertence ao tenant atual
+        if hasattr(instance, 'tenant') and instance.tenant != tenant:
+            raise PermissionDenied("Não é possível atualizar objetos de outro tenant")
+        
+        serializer.save()
+    
+    def perform_destroy(self, instance):
+        """
+        Valida que exclusões respeitam o isolamento de tenant.
+        """
+        tenant = get_current_tenant()
+        
+        # Verificar se o objeto pertence ao tenant atual
+        if hasattr(instance, 'tenant') and instance.tenant != tenant:
+            raise PermissionDenied("Não é possível excluir objetos de outro tenant")
+        
+        instance.delete()
+    
+    def get_serializer_context(self):
+        """
+        Adiciona contexto de tenant ao serializer.
+        """
+        context = super().get_serializer_context()
+        context['tenant'] = get_current_tenant()
+        return context
+    
+    def check_object_permissions(self, request, obj):
+        """
+        Verifica permissões específicas do objeto com validação de tenant.
+        """
+        super().check_object_permissions(request, obj)
+        
+        # Validação adicional de tenant
+        tenant = get_current_tenant()
+        if hasattr(obj, 'tenant') and obj.tenant != tenant:
+            raise PermissionDenied("Acesso negado: objeto pertence a outro tenant")
+    
+    def filter_queryset(self, queryset):
+        """
+        Aplica filtros adicionais garantindo isolamento de tenant.
+        """
+        queryset = super().filter_queryset(queryset)
+        
+        # Garantir que o queryset está filtrado por tenant
+        tenant = get_current_tenant()
+        if tenant and hasattr(queryset.model, 'tenant'):
+            # Aplicar filtro de tenant se ainda não foi aplicado
+            if not queryset.query.where or not any(
+                'tenant' in str(child) for child in queryset.query.where.children
+            ):
+                queryset = queryset.filter(tenant=tenant)
+        
+        return queryset
+    
+    def get_object(self):
+        """
+        Obtém objeto garantindo que pertence ao tenant atual.
+        """
+        obj = super().get_object()
+        
+        # Validar tenant do objeto
+        tenant = get_current_tenant()
+        if hasattr(obj, 'tenant') and obj.tenant != tenant:
+            from django.http import Http404
+            raise Http404("Objeto não encontrado no tenant atual")
+        
+        return obj
+    
+    def list(self, request, *args, **kwargs):
+        """
+        Lista objetos com validação de tenant.
+        """
+        # Verificar se há tenant no contexto
+        if not get_current_tenant():
+            from rest_framework.response import Response
+            return Response({
+                'error': 'Tenant requerido para listar objetos',
+                'code': 'TENANT_REQUIRED'
+            }, status=400)
+        
+        return super().list(request, *args, **kwargs)
+    
+    def create(self, request, *args, **kwargs):
+        """
+        Cria objetos com validação de tenant.
+        """
+        # Verificar se há tenant no contexto
+        if not get_current_tenant():
+            from rest_framework.response import Response
+            return Response({
+                'error': 'Tenant requerido para criar objetos',
+                'code': 'TENANT_REQUIRED'
+            }, status=400)
+        
+        return super().create(request, *args, **kwargs)
+    
+    def retrieve(self, request, *args, **kwargs):
+        """
+        Recupera objeto com validação de tenant.
+        """
+        return super().retrieve(request, *args, **kwargs)
+    
+    def update(self, request, *args, **kwargs):
+        """
+        Atualiza objeto com validação de tenant.
+        """
+        return super().update(request, *args, **kwargs)
+    
+    def destroy(self, request, *args, **kwargs):
+        """
+        Exclui objeto com validação de tenant.
+        """
+        return super().destroy(request, *args, **kwargs)

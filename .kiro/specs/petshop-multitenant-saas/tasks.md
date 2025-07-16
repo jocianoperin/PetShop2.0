@@ -151,32 +151,45 @@
     - Criar middleware de autenticação tenant-aware
     - _Requisitos: 2.1, 8.1_
 
-- [ ] 8. Adaptar ViewSets existentes para multitenant
-  - [ ] 8.1 Modificar ClienteViewSet
+- [x] 8. Adaptar ViewSets existentes para multitenant
+
+
+
+  - [x] 8.1 Modificar ClienteViewSet
+
+
     - Adicionar filtros automáticos por tenant
     - Implementar validações de acesso por tenant
     - Atualizar serializers para incluir contexto de tenant
     - _Requisitos: 2.1, 2.2, 2.3_
 
-  - [ ] 8.2 Adaptar AnimalViewSet para isolamento
+  - [x] 8.2 Adaptar AnimalViewSet para isolamento
+
+
     - Implementar filtros por tenant em consultas
     - Validar relacionamentos cliente-animal dentro do tenant
     - Adicionar verificações de propriedade por tenant
     - _Requisitos: 3.1, 3.2, 3.3_
 
-  - [ ] 8.3 Atualizar AgendamentoViewSet
+  - [x] 8.3 Atualizar AgendamentoViewSet
+
+
     - Implementar isolamento de agendamentos por tenant
     - Adicionar validações de conflito apenas dentro do tenant
     - Modificar lógica de notificações para usar configurações do tenant
     - _Requisitos: 4.1, 4.2, 4.3, 4.4_
 
-  - [ ] 8.4 Modificar ProdutoViewSet para estoque isolado
+  - [x] 8.4 Modificar ProdutoViewSet para estoque isolado
+
+
     - Implementar controle de estoque por tenant
     - Adicionar filtros automáticos para produtos do tenant
     - Criar validações de movimentação de estoque por tenant
     - _Requisitos: 5.1, 5.2, 5.3_
 
-  - [ ] 8.5 Adaptar VendaViewSet para finanças isoladas
+  - [x] 8.5 Adaptar VendaViewSet para finanças isoladas
+
+
     - Implementar isolamento de vendas por tenant
     - Adicionar cálculos financeiros específicos por tenant
     - Criar relatórios financeiros segregados
