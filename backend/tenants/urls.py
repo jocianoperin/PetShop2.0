@@ -2,7 +2,7 @@
 URLs para APIs de tenant e autenticação multitenant.
 """
 
-from django.urls import path
+from django.urls import path, include
 from .views import (
     TenantRegistrationView,
     TenantLoginView,
@@ -28,4 +28,7 @@ urlpatterns = [
     path('login/', TenantLoginView.as_view(), name='tenant-login'),
     path('logout/', tenant_logout, name='tenant-logout'),
     path('token/refresh/', TenantRefreshTokenView.as_view(), name='tenant-token-refresh'),
+    
+    # Endpoints de monitoramento
+    path('monitoring/', include('tenants.monitoring_urls')),
 ]

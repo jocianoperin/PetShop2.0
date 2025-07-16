@@ -69,6 +69,7 @@ MIDDLEWARE = [
     'corsheaders.middleware.CorsMiddleware',
     'tenants.middleware.TenantMiddleware',  # Resolução de tenant
     'tenants.middleware.TenantSchemaMiddleware',  # Configuração de schema
+    'tenants.monitoring.TenantLoggingMiddleware',  # Monitoramento e logging por tenant
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
     'django.contrib.auth.middleware.AuthenticationMiddleware',
@@ -212,6 +213,23 @@ CACHES = {
     }
 }
 
+# Configurações de Monitoramento Multitenant
+TENANT_MONITORING = {
+    'ENABLE_LOGGING': True,
+    'ENABLE_METRICS': True,
+    'ENABLE_AUDIT': True,
+    'ENABLE_DB_MONITORING': True,
+    'METRICS_CACHE_TIMEOUT': 3600,  # 1 hora
+    'LOGS_CACHE_TIMEOUT': 3600,  # 1 hora
+    'MAX_LOGS_PER_TENANT': 500,
+    'MAX_METRICS_HISTORY': 100,
+    'ALERT_THRESHOLDS': {
+        'ERROR_RATE': 10.0,  # % de erro
+        'RESPONSE_TIME': 5.0,  # segundos
+        'DB_QUERIES_PER_REQUEST': 50
+    }
+}
+
 # Configurações de Logging para Multitenant
 LOGGING = {
     'version': 1,
@@ -219,6 +237,10 @@ LOGGING = {
     'formatters': {
         'tenant_aware': {
             'format': '[{asctime}] {levelname} [{name}] [Tenant: {tenant}] {message}',
+            'style': '{',
+        },
+        'tenant_monitoring': {
+            'format': '[{asctime}] {levelname} [MONITORING] [Tenant: {tenant_name}({tenant_id})] {message}',
             'style': '{',
         },
         'standard': {
@@ -236,6 +258,16 @@ LOGGING = {
             'filename': BASE_DIR / 'logs' / 'django.log',
             'formatter': 'tenant_aware',
         },
+        'monitoring_file': {
+            'class': 'logging.FileHandler',
+            'filename': BASE_DIR / 'logs' / 'tenant_monitoring.log',
+            'formatter': 'tenant_monitoring',
+        },
+        'audit_file': {
+            'class': 'logging.FileHandler',
+            'filename': BASE_DIR / 'logs' / 'tenant_audit.log',
+            'formatter': 'tenant_monitoring',
+        },
     },
     'root': {
         'handlers': ['console'],
@@ -245,6 +277,16 @@ LOGGING = {
         'tenants': {
             'handlers': ['console', 'file'],
             'level': 'DEBUG',
+            'propagate': False,
+        },
+        'tenants.monitoring': {
+            'handlers': ['console', 'monitoring_file'],
+            'level': 'INFO',
+            'propagate': False,
+        },
+        'tenants.audit': {
+            'handlers': ['console', 'audit_file'],
+            'level': 'INFO',
             'propagate': False,
         },
         'django.db.backends': {
