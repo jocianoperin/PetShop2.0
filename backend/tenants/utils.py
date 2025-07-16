@@ -444,6 +444,54 @@ def get_tenant_from_request(request):
     return getattr(request, 'tenant', None)
 
 
+def resolve_tenant_from_request(request):
+    """
+    Resolve o tenant a partir de um request Django.
+    Tenta múltiplos métodos: middleware, header, subdomain.
+    
+    Args:
+        request: HttpRequest object
+    
+    Returns:
+        Tenant: Instância do tenant ou None
+    """
+    from .models import Tenant
+    
+    # Método 1: Tenant já resolvido pelo middleware
+    tenant = getattr(request, 'tenant', None)
+    if tenant:
+        return tenant
+    
+    # Método 2: Header X-Tenant-ID
+    tenant_id = request.headers.get('X-Tenant-ID')
+    if tenant_id:
+        try:
+            return Tenant.objects.get(id=tenant_id, is_active=True)
+        except (Tenant.DoesNotExist, ValueError):
+            pass
+    
+    # Método 3: Header X-Tenant-Subdomain
+    tenant_subdomain = request.headers.get('X-Tenant-Subdomain')
+    if tenant_subdomain:
+        try:
+            return Tenant.objects.get(subdomain=tenant_subdomain.lower(), is_active=True)
+        except Tenant.DoesNotExist:
+            pass
+    
+    # Método 4: Extrair do host (subdomain)
+    host = request.get_host()
+    if '.' in host:
+        subdomain = host.split('.')[0].lower()
+        # Ignorar subdomínios comuns que não são tenants
+        if subdomain not in ['www', 'api', 'admin', 'mail', 'ftp']:
+            try:
+                return Tenant.objects.get(subdomain=subdomain, is_active=True)
+            except Tenant.DoesNotExist:
+                pass
+    
+    return None
+
+
 def ensure_tenant_context(tenant):
     """
     Garante que um tenant específico está no contexto atual.

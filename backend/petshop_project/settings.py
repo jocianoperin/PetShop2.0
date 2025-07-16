@@ -37,15 +37,6 @@ CORS_ALLOW_CREDENTIALS = True
 AUTH_USER_MODEL = 'auth.User'
 
 # Configurações do JWT
-REST_FRAMEWORK = {
-    'DEFAULT_AUTHENTICATION_CLASSES': (
-        'rest_framework_simplejwt.authentication.JWTAuthentication',
-    ),
-    'DEFAULT_PERMISSION_CLASSES': [
-        'rest_framework.permissions.IsAuthenticated',
-    ]
-}
-
 from datetime import timedelta
 
 SIMPLE_JWT = {
@@ -172,6 +163,10 @@ DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
 # Django REST Framework settings
 REST_FRAMEWORK = {
+    'DEFAULT_AUTHENTICATION_CLASSES': [
+        'tenants.authentication.TenantJWTAuthentication',  # Tenant-aware JWT authentication
+        'rest_framework_simplejwt.authentication.JWTAuthentication',  # Fallback
+    ],
     'DEFAULT_PERMISSION_CLASSES': [
         'rest_framework.permissions.AllowAny',
     ],
@@ -189,6 +184,9 @@ CORS_ALLOW_CREDENTIALS = True
 # Media files
 MEDIA_URL = '/media/'
 MEDIA_ROOT = BASE_DIR / 'media'
+
+# Frontend URL for tenant registration responses
+FRONTEND_BASE_URL = config('FRONTEND_BASE_URL', default='http://localhost:3000')
 
 
 # Configurações Multitenant

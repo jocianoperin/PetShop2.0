@@ -25,12 +25,15 @@ urlpatterns = [
     path('admin/', admin.site.urls),
     path('api/', include('api.urls')),
     
-    # Autenticação
+    # APIs de tenant (multitenant)
+    path('api/tenants/', include('tenants.urls')),
+    
+    # Autenticação (legacy - manter para compatibilidade)
     path('api/auth/login/', LoginView.as_view(), name='login'),
     path('api/auth/logout/', LogoutView.as_view(), name='logout'),
     path('api/auth/token/refresh/', TokenRefreshView.as_view(), name='token_refresh'),
     
-    # Usuários
+    # Usuários (legacy - manter para compatibilidade)
     path('api/users/', UserCreateView.as_view(), name='user-create'),
     path('api/users/list/', UserListView.as_view(), name='user-list'),
 ]

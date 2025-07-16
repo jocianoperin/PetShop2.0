@@ -125,15 +125,27 @@
     - Adicionar configurações padrão por tenant
     - _Requisitos: 1.3, 12.2_
 
-- [ ] 7. Criar APIs de cadastro e autenticação multitenant
-  - [ ] 7.1 Implementar API de registro de tenant
+- [x] 7. Criar APIs de cadastro e autenticação multitenant
+
+
+
+
+
+
+  - [x] 7.1 Implementar API de registro de tenant
+
+
+
+
     - Criar endpoint POST /api/tenants/register
     - Implementar validações para dados de cadastro
     - Adicionar verificação de disponibilidade de subdomain
     - Integrar com serviço de provisionamento
     - _Requisitos: 1.1, 12.1_
 
-  - [ ] 7.2 Desenvolver sistema de autenticação por tenant
+  - [x] 7.2 Desenvolver sistema de autenticação por tenant
+
+
     - Modificar sistema de login para incluir identificação de tenant
     - Implementar JWT tokens com informações de tenant
     - Criar middleware de autenticação tenant-aware
