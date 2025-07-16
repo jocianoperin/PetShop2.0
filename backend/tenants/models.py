@@ -77,6 +77,18 @@ class Tenant(models.Model):
             raise ValidationError({'schema_name': 'Este nome de schema já está em uso.'})
 
 
+# Import encrypted models to register them with Django
+from .encrypted_models import (
+    EncryptedClienteData, EncryptedAnimalData, 
+    DataProcessingLog, ConsentRecord
+)
+
+# Import audit models to register them with Django
+from .audit_models import AuditLog, LGPDRequest, DataChangeLog
+
+
+
+
 class TenantUser(models.Model):
     """
     Modelo para usuários vinculados a tenants específicos.

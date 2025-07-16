@@ -1,0 +1,2 @@
+# Additional requirements for encryption functionality
+cryptography>=41.0.0

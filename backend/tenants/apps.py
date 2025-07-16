@@ -10,6 +10,5 @@ class TenantsConfig(AppConfig):
     
     def ready(self):
         """Executado quando a aplicação está pronta"""
-        # Importa sinais se necessário
-        # from . import signals
-        pass
+        # Importa sinais de auditoria
+        from . import audit_signals

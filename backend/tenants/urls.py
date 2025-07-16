@@ -31,4 +31,7 @@ urlpatterns = [
     
     # Endpoints de monitoramento
     path('monitoring/', include('tenants.monitoring_urls')),
+    
+    # Endpoints de auditoria e conformidade LGPD
+    path('audit/', include('tenants.audit_urls')),
 ]

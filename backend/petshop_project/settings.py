@@ -69,6 +69,10 @@ MIDDLEWARE = [
     'corsheaders.middleware.CorsMiddleware',
     'tenants.middleware.TenantMiddleware',  # Resolução de tenant
     'tenants.middleware.TenantSchemaMiddleware',  # Configuração de schema
+    'tenants.audit_signals.CurrentUserMiddleware',  # Captura usuário atual para auditoria
+    'tenants.audit_middleware.AuditMiddleware',  # Auditoria automática de requisições
+    'tenants.audit_middleware.DataChangeAuditMiddleware',  # Auditoria de mudanças de dados
+    'tenants.audit_middleware.AuditBasedRateLimitMiddleware',  # Rate limiting baseado em auditoria
     'tenants.monitoring.TenantLoggingMiddleware',  # Monitoramento e logging por tenant
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
@@ -236,11 +240,11 @@ LOGGING = {
     'disable_existing_loggers': False,
     'formatters': {
         'tenant_aware': {
-            'format': '[{asctime}] {levelname} [{name}] [Tenant: {tenant}] {message}',
+            'format': '[{asctime}] {levelname} [{name}] {message}',
             'style': '{',
         },
         'tenant_monitoring': {
-            'format': '[{asctime}] {levelname} [MONITORING] [Tenant: {tenant_name}({tenant_id})] {message}',
+            'format': '[{asctime}] {levelname} [MONITORING] {message}',
             'style': '{',
         },
         'standard': {
