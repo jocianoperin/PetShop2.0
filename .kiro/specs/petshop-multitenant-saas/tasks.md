@@ -103,15 +103,23 @@
     - Atualizar modelo Venda para segregação por tenant
     - _Requisitos: 2.1, 3.1, 4.1, 5.1, 6.1_
 
-- [ ] 6. Implementar serviço de provisionamento automático
-  - [ ] 6.1 Criar TenantProvisioningService
+- [x] 6. Implementar serviço de provisionamento automático
+
+
+
+
+  - [x] 6.1 Criar TenantProvisioningService
+
+
     - Implementar método create_tenant com validações
     - Adicionar lógica para criação automática de schema
     - Implementar execução de migrações no novo schema
     - Criar sistema de rollback para falhas no provisionamento
     - _Requisitos: 1.1, 1.2, 12.1, 12.3_
 
-  - [ ] 6.2 Desenvolver sistema de dados iniciais
+  - [x] 6.2 Desenvolver sistema de dados iniciais
+
+
     - Criar fixtures padrão para novos tenants
     - Implementar inserção automática de dados básicos
     - Adicionar configurações padrão por tenant
