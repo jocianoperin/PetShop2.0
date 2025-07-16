@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from 'next';
 import { Inter } from 'next/font/google';
 import './globals.css';
 import { AuthProvider } from '@/contexts/AuthProvider';
+import { TenantProvider } from '@/contexts/TenantProvider';
 
 const inter = Inter({ subsets: ['latin'] });
 
@@ -30,9 +31,11 @@ export default function RootLayout({
     <html lang="pt-BR" suppressHydrationWarning>
       <head />
       <body className={`${inter.className} min-h-screen bg-background antialiased`}>
-        <AuthProvider>
-          {children}
-        </AuthProvider>
+        <TenantProvider>
+          <AuthProvider>
+            {children}
+          </AuthProvider>
+        </TenantProvider>
       </body>
     </html>
   );

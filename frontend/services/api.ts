@@ -1,5 +1,6 @@
 import { API_ENDPOINTS, getAuthHeader } from '@/config/api';
 import { LoginCredentials, LoginResponse, User, CreateUserData } from '@/types';
+import { getTenantHeaders } from '@/lib/tenant';
 
 export class AuthService {
   static async login(credentials: LoginCredentials): Promise<LoginResponse> {
@@ -7,6 +8,7 @@ export class AuthService {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
+        ...getTenantHeaders(),
       },
       body: JSON.stringify(credentials),
     });
@@ -29,6 +31,7 @@ export class AuthService {
         headers: {
           'Content-Type': 'application/json',
           ...getAuthHeader(token),
+          ...getTenantHeaders(),
         },
       });
     } catch (error) {
@@ -41,6 +44,7 @@ export class AuthService {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
+        ...getTenantHeaders(),
       },
       body: JSON.stringify({ refresh }),
     });
@@ -54,7 +58,10 @@ export class AuthService {
 
   static async getCurrentUser(token: string): Promise<User> {
     const response = await fetch(API_ENDPOINTS.USERS.ME, {
-      headers: getAuthHeader(token),
+      headers: {
+        ...getAuthHeader(token),
+        ...getTenantHeaders(),
+      },
     });
 
     if (!response.ok) {
@@ -70,6 +77,7 @@ export class AuthService {
       headers: {
         'Content-Type': 'application/json',
         ...getAuthHeader(token),
+        ...getTenantHeaders(),
       },
       body: JSON.stringify(userData),
     });
@@ -84,7 +92,10 @@ export class AuthService {
 
   static async listUsers(token: string): Promise<User[]> {
     const response = await fetch(API_ENDPOINTS.USERS.LIST, {
-      headers: getAuthHeader(token),
+      headers: {
+        ...getAuthHeader(token),
+        ...getTenantHeaders(),
+      },
     });
 
     if (!response.ok) {

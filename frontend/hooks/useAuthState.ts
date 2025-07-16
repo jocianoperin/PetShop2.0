@@ -1,10 +1,12 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { authService } from '@/services/api';
-import { User } from '@/types';
+import { User, Tenant } from '@/types';
+import { getCurrentTenant, clearCurrentTenant, getTenantHeaders } from '@/lib/tenant';
 
 export function useAuthState() {
   const [user, setUser] = useState<User | null>(null);
+  const [tenant, setTenant] = useState<Tenant | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const router = useRouter();
 
@@ -18,22 +20,42 @@ export function useAuthState() {
     try {
       const userData = await authService.getCurrentUser(token);
       setUser(userData);
+      
+      // Set tenant from user data if available
+      if (userData.tenant) {
+        setTenant(userData.tenant);
+      }
     } catch (error) {
       console.error('Erro ao buscar dados do usuário:', error);
       localStorage.removeItem('access_token');
       localStorage.removeItem('refresh_token');
       setUser(null);
+      setTenant(null);
     } finally {
       setIsLoading(false);
     }
   }, []);
 
-  const login = useCallback(async (username: string, password: string) => {
+  const login = useCallback(async (username: string, password: string, tenantId?: string) => {
     try {
-      const data = await authService.login({ username, password });
+      // Use detected tenant if not provided
+      const currentTenant = tenantId || getCurrentTenant();
+      
+      const data = await authService.login({ 
+        username, 
+        password, 
+        tenant_id: currentTenant || undefined 
+      });
+      
       localStorage.setItem('access_token', data.access);
       localStorage.setItem('refresh_token', data.refresh);
       setUser(data.user);
+      
+      // Set tenant from response
+      if (data.tenant) {
+        setTenant(data.tenant);
+      }
+      
       return data.user;
     } catch (error) {
       console.error('Erro no login:', error);
@@ -46,6 +68,8 @@ export function useAuthState() {
     localStorage.removeItem('access_token');
     localStorage.removeItem('refresh_token');
     setUser(null);
+    setTenant(null);
+    clearCurrentTenant();
     router.push('/login');
   }, [router]);
 
@@ -68,6 +92,7 @@ export function useAuthState() {
 
   return {
     user,
+    tenant,
     isAuthenticated: !!user,
     isLoading,
     login,

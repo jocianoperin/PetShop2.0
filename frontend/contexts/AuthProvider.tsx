@@ -2,13 +2,14 @@
 
 import { createContext, useContext, ReactNode } from 'react';
 import { useAuthState } from '@/hooks/useAuthState';
-import { User } from '@/types';
+import { User, Tenant } from '@/types';
 
 interface AuthContextType {
   user: User | null;
+  tenant: Tenant | null;
   isAuthenticated: boolean;
   isLoading: boolean;
-  login: (username: string, password: string) => Promise<User>;
+  login: (username: string, password: string, tenantId?: string) => Promise<User>;
   logout: () => void;
   createUser: (userData: { username: string; email: string; password: string }) => Promise<User>;
 }
