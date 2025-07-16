@@ -1,204 +1,582 @@
+"""
+Database router para sistema multitenant.
+
+Este router implementa a lógica de roteamento automático de queries
+para o schema correto baseado no tenant atual. Suporta tanto SQLite
+(desenvolvimento) quanto PostgreSQL (produção).
+"""
+
 from django.conf import settings
-from .utils import get_current_tenant
+from django.db import connection, models
+from .utils import get_current_tenant, _is_postgresql
 
 
 class TenantDatabaseRouter:
     """
     Router de banco de dados para sistema multitenant.
     
-    Direciona operações de banco para o schema correto baseado no tenant atual.
-    Modelos compartilhados (Tenant, TenantUser, etc.) sempre usam o schema 'public'.
-    Modelos tenant-aware usam o schema específico do tenant atual.
-    """
+    Implementa roteamento automático baseado no tenant atual:
+    - Para PostgreSQL: usa schemas separados por tenant
+    - Para SQLite: usa prefixos de tabela (simulação de schemas)
     
-    # Modelos que sempre usam o schema compartilhado (public)
-    SHARED_MODELS = {
-        'tenants.tenant',
-        'tenants.tenantuser', 
-        'tenants.tenantconfiguration',
-        'auth.user',
-        'auth.group',
-        'auth.permission',
-        'contenttypes.contenttype',
-        'sessions.session',
-        'admin.logentry',
-    }
+    O router intercepta todas as operações de banco e direciona
+    para o schema/database correto baseado no contexto atual.
+    """
 
     def db_for_read(self, model, **hints):
-        """Determina qual banco usar para operações de leitura"""
-        return self._get_database_for_model(model)
-
-    def db_for_write(self, model, **hints):
-        """Determina qual banco usar para operações de escrita"""
-        return self._get_database_for_model(model)
-
-    def allow_relation(self, obj1, obj2, **hints):
-        """Permite relações entre objetos do mesmo tenant ou modelos compartilhados"""
-        # Sempre permite relações entre modelos compartilhados
-        if (self._is_shared_model(obj1._meta.label_lower) and 
-            self._is_shared_model(obj2._meta.label_lower)):
-            return True
+        """
+        Determina qual database usar para operações de leitura.
         
-        # Para modelos tenant-aware, verifica se estão no mesmo tenant
+        Args:
+            model: Modelo Django sendo consultado
+            **hints: Dicas adicionais sobre a operação
+            
+        Returns:
+            str: Nome do database a ser usado ou None para usar o padrão
+        """
+        # Modelos do sistema compartilhado sempre usam 'default'
+        if self._is_shared_model(model):
+            return 'default'
+        
+        # Modelos tenant-aware usam o database do tenant atual
         tenant = get_current_tenant()
         if tenant:
+            return self._get_tenant_database_alias(tenant)
+        
+        # Se não há tenant no contexto, usa o database padrão
+        return 'default'
+
+    def db_for_write(self, model, **hints):
+        """
+        Determina qual database usar para operações de escrita.
+        
+        Args:
+            model: Modelo Django sendo modificado
+            **hints: Dicas adicionais sobre a operação
+            
+        Returns:
+            str: Nome do database a ser usado ou None para usar o padrão
+        """
+        # Mesma lógica que db_for_read
+        return self.db_for_read(model, **hints)
+
+    def allow_relation(self, obj1, obj2, **hints):
+        """
+        Determina se uma relação entre dois objetos é permitida.
+        
+        Args:
+            obj1: Primeiro objeto da relação
+            obj2: Segundo objeto da relação
+            **hints: Dicas adicionais sobre a relação
+            
+        Returns:
+            bool: True se a relação é permitida, False caso contrário, None para padrão
+        """
+        # Permite relações entre modelos do mesmo tenant
+        db_set = {'default'}
+        
+        # Adiciona o database do tenant atual se existir
+        tenant = get_current_tenant()
+        if tenant:
+            db_set.add(self._get_tenant_database_alias(tenant))
+        
+        # Verifica se ambos os objetos estão no mesmo conjunto de databases
+        if obj1._state.db in db_set and obj2._state.db in db_set:
+            return True
+        
+        # Permite relações entre modelos compartilhados
+        if (self._is_shared_model(obj1.__class__) and 
+            self._is_shared_model(obj2.__class__)):
             return True
         
         return None
 
     def allow_migrate(self, db, app_label, model_name=None, **hints):
-        """Controla quais migrações são aplicadas em qual banco/schema"""
-        model_label = f"{app_label}.{model_name}" if model_name else None
+        """
+        Determina se uma migração deve ser aplicada em um database específico.
         
-        # Modelos compartilhados sempre migram no banco padrão
-        if model_label and self._is_shared_model(model_label):
+        Args:
+            db: Nome do database
+            app_label: Label da aplicação
+            model_name: Nome do modelo (opcional)
+            **hints: Dicas adicionais sobre a migração
+            
+        Returns:
+            bool: True se a migração deve ser aplicada, False caso contrário, None para padrão
+        """
+        # Migrações do app 'tenants' sempre no database padrão
+        if app_label == 'tenants':
             return db == 'default'
         
-        # Para outros modelos, permite migração baseada no contexto
+        # Migrações de apps do Django sempre no database padrão
+        if app_label in ['auth', 'contenttypes', 'sessions', 'admin']:
+            return db == 'default'
+        
+        # Para outros apps, permite migração em qualquer database
+        # (necessário para criar tabelas nos schemas dos tenants)
         return True
 
-    def _get_database_for_model(self, model):
-        """Determina o banco correto para um modelo específico"""
-        model_label = model._meta.label_lower
+    def _is_shared_model(self, model):
+        """
+        Verifica se um modelo pertence ao schema compartilhado.
         
-        # Modelos compartilhados sempre usam o banco padrão
-        if self._is_shared_model(model_label):
-            return 'default'
+        Args:
+            model: Classe do modelo Django
+            
+        Returns:
+            bool: True se o modelo é compartilhado, False caso contrário
+        """
+        # Modelos do app 'tenants' são sempre compartilhados
+        if hasattr(model, '_meta') and model._meta.app_label == 'tenants':
+            return True
         
-        # Modelos tenant-aware usam o banco do tenant atual
-        tenant = get_current_tenant()
-        if tenant:
-            # Para PostgreSQL com schemas, ainda usamos 'default' 
-            # mas o middleware configura o search_path
-            return 'default'
+        # Modelos do Django são sempre compartilhados
+        django_apps = ['auth', 'contenttypes', 'sessions', 'admin']
+        if hasattr(model, '_meta') and model._meta.app_label in django_apps:
+            return True
         
-        # Fallback para banco padrão
+        # Verifica se o modelo tem a meta option 'shared'
+        if hasattr(model, '_meta') and hasattr(model._meta, 'shared'):
+            return model._meta.shared
+        
+        return False
+
+    def _get_tenant_database_alias(self, tenant):
+        """
+        Obtém o alias do database para um tenant específico.
+        
+        Para PostgreSQL: usa o database padrão com schema diferente
+        Para SQLite: poderia usar databases separados, mas usamos o padrão
+        
+        Args:
+            tenant: Instância do modelo Tenant
+            
+        Returns:
+            str: Alias do database
+        """
+        # Por enquanto, sempre usa 'default' pois o roteamento é feito via schema
+        # Em implementações mais avançadas, poderia usar databases separados
         return 'default'
 
-    def _is_shared_model(self, model_label):
-        """Verifica se um modelo é compartilhado entre todos os tenants"""
-        return model_label.lower() in self.SHARED_MODELS
 
+class TenantSchemaRouter:
+    """
+    Router especializado para gerenciamento de schemas PostgreSQL.
+    
+    Este router complementa o TenantDatabaseRouter fornecendo
+    funcionalidades específicas para PostgreSQL schemas.
+    """
 
-class TenantAwareManager:
-    """
-    Manager personalizado que automaticamente filtra dados por tenant.
-    
-    Usage:
-        class MinhaModel(models.Model):
-            objects = TenantAwareManager()
-            # ... campos do modelo
-    """
-    
-    def get_queryset(self):
-        """Retorna queryset filtrado pelo tenant atual"""
-        queryset = super().get_queryset()
-        tenant = get_current_tenant()
+    def __init__(self):
+        self.current_schema = None
+
+    def set_schema(self, schema_name):
+        """
+        Define o schema atual para as próximas operações.
         
-        if tenant and hasattr(self.model, 'tenant_id'):
-            # Se o modelo tem campo tenant_id, filtra automaticamente
-            queryset = queryset.filter(tenant_id=tenant.id)
+        Args:
+            schema_name: Nome do schema a ser usado
+        """
+        if not _is_postgresql():
+            return
+        
+        try:
+            with connection.cursor() as cursor:
+                cursor.execute(f"SET search_path TO {schema_name}, public")
+                self.current_schema = schema_name
+        except Exception as e:
+            import logging
+            logger = logging.getLogger('tenants')
+            logger.error(f"Erro ao definir schema {schema_name}: {str(e)}")
+
+    def get_current_schema(self):
+        """
+        Obtém o schema atualmente ativo.
+        
+        Returns:
+            str: Nome do schema atual ou None
+        """
+        if not _is_postgresql():
+            return None
+        
+        try:
+            with connection.cursor() as cursor:
+                cursor.execute("SELECT current_schema()")
+                result = cursor.fetchone()
+                return result[0] if result else None
+        except Exception:
+            return None
+
+    def ensure_tenant_schema(self, tenant):
+        """
+        Garante que o schema do tenant está ativo.
+        
+        Args:
+            tenant: Instância do modelo Tenant
+        """
+        if not tenant or not _is_postgresql():
+            return
+        
+        current_schema = self.get_current_schema()
+        if current_schema != tenant.schema_name:
+            self.set_schema(tenant.schema_name)
+
+    def reset_to_public(self):
+        """
+        Reseta o schema para 'public' (padrão).
+        """
+        if _is_postgresql():
+            self.set_schema('public')
+
+
+# Instância global do router de schema
+schema_router = TenantSchemaRouter()
+
+
+class TenantAwareQuerySet:
+    """
+    Mixin para QuerySets que devem ser automaticamente filtrados por tenant.
+    
+    Este mixin pode ser usado em managers customizados para garantir
+    que todas as queries sejam automaticamente filtradas pelo tenant atual.
+    """
+
+    def get_queryset(self):
+        """
+        Retorna o QuerySet base filtrado pelo tenant atual.
+        
+        Returns:
+            QuerySet: QuerySet filtrado pelo tenant
+        """
+        queryset = super().get_queryset()
+        
+        # Aplica filtro de tenant se o modelo suportar
+        tenant = get_current_tenant()
+        if tenant and hasattr(self.model, 'tenant'):
+            queryset = queryset.filter(tenant=tenant)
+        
+        return queryset
+
+
+class TenantAwareManager(models.Manager):
+    """
+    Manager base para modelos tenant-aware.
+    
+    Este manager garante que todas as operações sejam automaticamente
+    filtradas pelo tenant atual, proporcionando isolamento de dados.
+    """
+
+    def get_queryset(self):
+        """
+        Retorna o QuerySet base filtrado pelo tenant atual.
+        
+        Returns:
+            QuerySet: QuerySet filtrado pelo tenant
+        """
+        queryset = super().get_queryset()
+        
+        # Aplica filtro de tenant automaticamente
+        tenant = get_current_tenant()
+        if tenant and hasattr(self.model, 'tenant'):
+            queryset = queryset.filter(tenant=tenant)
+        elif tenant and hasattr(self.model, '_meta'):
+            # Verifica se o modelo tem campo tenant implícito
+            tenant_fields = [f for f in self.model._meta.fields 
+                           if f.name in ['tenant', 'tenant_id']]
+            if tenant_fields:
+                queryset = queryset.filter(**{tenant_fields[0].name: tenant})
         
         return queryset
 
     def create(self, **kwargs):
-        """Cria objeto associado ao tenant atual"""
-        tenant = get_current_tenant()
+        """
+        Cria um novo objeto associado ao tenant atual.
         
-        if tenant and hasattr(self.model, 'tenant_id'):
-            kwargs['tenant_id'] = tenant.id
+        Args:
+            **kwargs: Argumentos para criação do objeto
+            
+        Returns:
+            Model: Instância do objeto criado
+        """
+        # Adiciona o tenant atual automaticamente
+        tenant = get_current_tenant()
+        if tenant and 'tenant' not in kwargs:
+            if hasattr(self.model, 'tenant'):
+                kwargs['tenant'] = tenant
+            elif hasattr(self.model, 'tenant_id'):
+                kwargs['tenant_id'] = tenant.id
         
         return super().create(**kwargs)
 
-
-def setup_tenant_databases():
-    """
-    Configura conexões de banco para todos os tenants ativos.
-    Deve ser chamado na inicialização da aplicação.
-    """
-    from .models import Tenant
-    
-    try:
-        # Obtém todos os tenants ativos
-        tenants = Tenant.objects.filter(is_active=True)
+    def bulk_create(self, objs, **kwargs):
+        """
+        Cria múltiplos objetos associados ao tenant atual.
         
-        # Para cada tenant, garante que o schema existe
-        for tenant in tenants:
-            ensure_tenant_schema_exists(tenant)
+        Args:
+            objs: Lista de objetos a serem criados
+            **kwargs: Argumentos adicionais
             
-        print(f"Configurados {tenants.count()} schemas de tenant")
+        Returns:
+            list: Lista de objetos criados
+        """
+        # Adiciona o tenant atual a todos os objetos
+        tenant = get_current_tenant()
+        if tenant:
+            for obj in objs:
+                if hasattr(obj, 'tenant') and not obj.tenant:
+                    obj.tenant = tenant
+                elif hasattr(obj, 'tenant_id') and not obj.tenant_id:
+                    obj.tenant_id = tenant.id
         
-    except Exception as e:
-        print(f"Erro ao configurar bancos de tenant: {str(e)}")
+        return super().bulk_create(objs, **kwargs)
 
 
-def ensure_tenant_schema_exists(tenant):
+def get_tenant_database_settings(tenant):
     """
-    Garante que o schema do tenant existe no banco de dados.
+    Obtém as configurações de database para um tenant específico.
     
     Args:
         tenant: Instância do modelo Tenant
+        
+    Returns:
+        dict: Configurações de database para o tenant
     """
-    from django.db import connection
+    base_settings = settings.DATABASES['default'].copy()
     
-    try:
+    if _is_postgresql():
+        # Para PostgreSQL, modifica o search_path
+        options = base_settings.get('OPTIONS', {})
+        options['options'] = f'-c search_path={tenant.schema_name},public'
+        base_settings['OPTIONS'] = options
+    else:
+        # Para SQLite, poderia usar databases separados
+        # Por enquanto, usa o mesmo database com prefixos de tabela
+        pass
+    
+    return base_settings
+
+
+def create_tenant_database_connection(tenant):
+    """
+    Cria uma conexão de database específica para um tenant.
+    
+    Args:
+        tenant: Instância do modelo Tenant
+        
+    Returns:
+        DatabaseWrapper: Conexão de database configurada para o tenant
+    """
+    from django.db import connections
+    from django.db.utils import ConnectionHandler
+    
+    # Obtém as configurações do tenant
+    tenant_settings = get_tenant_database_settings(tenant)
+    
+    # Cria um alias único para o tenant
+    tenant_alias = f"tenant_{tenant.schema_name}"
+    
+    # Adiciona a configuração ao handler de conexões
+    if tenant_alias not in connections.databases:
+        connections.databases[tenant_alias] = tenant_settings
+    
+    return connections[tenant_alias]
+
+
+def execute_tenant_query(tenant, query, params=None):
+    """
+    Executa uma query SQL no contexto de um tenant específico.
+    
+    Args:
+        tenant: Instância do modelo Tenant
+        query: Query SQL a ser executada
+        params: Parâmetros da query (opcional)
+        
+    Returns:
+        Resultado da query
+    """
+    from .utils import tenant_context
+    
+    with tenant_context(tenant):
         with connection.cursor() as cursor:
-            # Verifica se o schema existe
-            cursor.execute("""
-                SELECT schema_name 
-                FROM information_schema.schemata 
-                WHERE schema_name = %s
-            """, [tenant.schema_name])
+            if params:
+                cursor.execute(query, params)
+            else:
+                cursor.execute(query)
             
-            if not cursor.fetchone():
-                # Cria o schema se não existir
-                cursor.execute(f"CREATE SCHEMA {tenant.schema_name}")
-                print(f"Schema {tenant.schema_name} criado para tenant {tenant.name}")
+            # Retorna resultados para queries SELECT
+            if query.strip().upper().startswith('SELECT'):
+                return cursor.fetchall()
             
+            return cursor.rowcount
+
+
+def migrate_tenant_schema(tenant, app_label=None):
+    """
+    Executa migrações no schema de um tenant específico.
+    
+    Args:
+        tenant: Instância do modelo Tenant
+        app_label: Label da aplicação (opcional, migra todas se não especificado)
+        
+    Returns:
+        bool: True se as migrações foram executadas com sucesso
+    """
+    from django.core.management import call_command
+    from django.db import transaction
+    from .utils import tenant_context
+    
+    try:
+        with tenant_context(tenant):
+            with transaction.atomic():
+                if app_label:
+                    call_command('migrate', app_label, verbosity=0, interactive=False)
+                else:
+                    call_command('migrate', verbosity=0, interactive=False)
+        return True
     except Exception as e:
-        print(f"Erro ao verificar/criar schema para tenant {tenant.name}: {str(e)}")
+        import logging
+        logger = logging.getLogger('tenants')
+        logger.error(f"Erro ao migrar schema do tenant {tenant.name}: {str(e)}")
+        return False
 
 
-def get_tenant_connection_params(tenant):
+def validate_tenant_schema(tenant):
     """
-    Retorna parâmetros de conexão específicos para um tenant.
+    Valida se o schema de um tenant está corretamente configurado.
     
     Args:
         tenant: Instância do modelo Tenant
-    
+        
     Returns:
-        dict: Parâmetros de conexão do banco
+        dict: Resultado da validação com status e detalhes
     """
-    from django.conf import settings
+    from .utils import tenant_context, list_tenant_tables
     
-    # Copia configurações do banco padrão
-    db_config = settings.DATABASES['default'].copy()
+    result = {
+        'valid': False,
+        'schema_exists': False,
+        'tables_count': 0,
+        'missing_tables': [],
+        'errors': []
+    }
     
-    # Para PostgreSQL, modifica o search_path
-    if 'postgresql' in db_config.get('ENGINE', ''):
-        options = db_config.get('OPTIONS', {})
-        options['options'] = f"-c search_path={tenant.schema_name},public"
-        db_config['OPTIONS'] = options
+    try:
+        # Verifica se o schema existe (PostgreSQL)
+        if _is_postgresql():
+            with connection.cursor() as cursor:
+                cursor.execute("""
+                    SELECT schema_name FROM information_schema.schemata 
+                    WHERE schema_name = %s
+                """, [tenant.schema_name])
+                result['schema_exists'] = bool(cursor.fetchone())
+        else:
+            # Para SQLite, assume que o schema existe
+            result['schema_exists'] = True
+        
+        if result['schema_exists']:
+            # Lista tabelas no schema do tenant
+            with tenant_context(tenant):
+                tables = list_tenant_tables(tenant)
+                result['tables_count'] = len(tables)
+                
+                # Verifica se as tabelas essenciais existem
+                expected_tables = [
+                    'api_cliente', 'api_animal', 'api_servico',
+                    'api_agendamento', 'api_produto', 'api_venda'
+                ]
+                
+                for table in expected_tables:
+                    if table not in tables:
+                        result['missing_tables'].append(table)
+                
+                result['valid'] = len(result['missing_tables']) == 0
+        
+    except Exception as e:
+        result['errors'].append(str(e))
     
-    return db_config
+    return result
 
 
-def create_tenant_database_alias(tenant):
+class DatabaseRoutingMiddleware:
     """
-    Cria um alias de banco específico para um tenant.
+    Middleware adicional para garantir roteamento correto de database.
     
-    Args:
-        tenant: Instância do modelo Tenant
+    Este middleware trabalha em conjunto com o TenantMiddleware
+    para garantir que todas as operações de banco sejam roteadas
+    corretamente para o schema do tenant.
+    """
+    
+    def __init__(self, get_response):
+        self.get_response = get_response
+
+    def __call__(self, request):
+        # Garante que o schema correto está ativo antes do processamento
+        tenant = getattr(request, 'tenant', None)
+        if tenant:
+            schema_router.ensure_tenant_schema(tenant)
+        
+        response = self.get_response(request)
+        
+        # Reseta para o schema público após o processamento
+        if tenant:
+            schema_router.reset_to_public()
+        
+        return response
+
+
+def get_tenant_connection_info():
+    """
+    Obtém informações sobre as conexões de database dos tenants.
     
     Returns:
-        str: Nome do alias criado
+        dict: Informações sobre conexões ativas
     """
-    from django.conf import settings
+    from django.db import connections
     
-    alias_name = f"tenant_{tenant.schema_name}"
+    info = {
+        'total_connections': len(connections.all()),
+        'tenant_connections': [],
+        'default_connection': {
+            'engine': connection.settings_dict['ENGINE'],
+            'name': connection.settings_dict['NAME'],
+        }
+    }
     
-    # Adiciona configuração do banco para o tenant
-    if alias_name not in settings.DATABASES:
-        settings.DATABASES[alias_name] = get_tenant_connection_params(tenant)
+    # Lista conexões específicas de tenants
+    for alias, conn in connections.all():
+        if alias.startswith('tenant_'):
+            info['tenant_connections'].append({
+                'alias': alias,
+                'engine': conn.settings_dict['ENGINE'],
+                'schema': alias.replace('tenant_', ''),
+            })
     
-    return alias_name
+    return info
+
+
+def cleanup_tenant_connections():
+    """
+    Limpa conexões de database não utilizadas de tenants.
+    
+    Esta função pode ser chamada periodicamente para liberar recursos.
+    """
+    from django.db import connections
+    
+    # Fecha conexões de tenants não utilizadas
+    for alias in list(connections.databases.keys()):
+        if alias.startswith('tenant_') and alias in connections._connections:
+            conn = connections._connections[alias]
+            if hasattr(conn, 'close'):
+                conn.close()
+            del connections._connections[alias]
+
+
+# Configurações padrão para o router
+TENANT_DATABASE_ROUTER_SETTINGS = {
+    'AUTO_ROUTE_TENANT_MODELS': True,
+    'SHARED_APPS': ['tenants', 'auth', 'contenttypes', 'sessions', 'admin'],
+    'TENANT_APPS': ['api'],
+    'CACHE_TENANT_CONNECTIONS': True,
+    'MAX_TENANT_CONNECTIONS': 100,
+    'CONNECTION_TIMEOUT': 300,  # 5 minutos
+}

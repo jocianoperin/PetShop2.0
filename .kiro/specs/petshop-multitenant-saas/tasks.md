@@ -68,7 +68,9 @@
     - Adicionar decorators para views que requerem tenant
     - _Requisitos: 2.3, 3.3_
 
-- [-] 4. Implementar database router multitenant
+- [x] 4. Implementar database router multitenant
+
+
 
 
 
