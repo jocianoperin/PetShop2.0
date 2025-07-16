@@ -13,20 +13,29 @@
   - Criar configurações Django para conexões dinâmicas
   - _Requisitos: 1.3, 1.4_
 
-- [ ] 2. Implementar modelos de dados compartilhados
-  - [ ] 2.1 Criar modelo Tenant no schema compartilhado
+- [x] 2. Implementar modelos de dados compartilhados
+
+
+
+  - [x] 2.1 Criar modelo Tenant no schema compartilhado
+
+
     - Implementar classe Tenant com campos (id, name, subdomain, schema_name, etc.)
     - Adicionar validações para subdomain único e schema_name
     - Criar migrações para tabela tenants
     - _Requisitos: 1.1, 1.2_
 
-  - [ ] 2.2 Criar modelo TenantUser para autenticação
+  - [x] 2.2 Criar modelo TenantUser para autenticação
+
+
     - Implementar modelo de usuário vinculado a tenant
     - Adicionar campos de role e permissões por tenant
     - Criar relacionamento com modelo Tenant
     - _Requisitos: 2.1, 8.3_
 
-  - [ ] 2.3 Implementar modelo TenantConfiguration
+  - [x] 2.3 Implementar modelo TenantConfiguration
+
+
     - Criar sistema de configurações por tenant
     - Implementar validações para chaves de configuração
     - Adicionar métodos para get/set de configurações
