@@ -1,9 +1,6 @@
 """
-Modelos base para sistema multitenant.
-
-Este módulo fornece classes base que implementam funcionalidades
-multitenant para modelos Django, incluindo managers e querysets
-que automaticamente filtram dados por tenant.
+Base models and managers for tenant-aware functionality.
+Provides automatic tenant isolation for all models that inherit from TenantAwareModel.
 """
 
 from django.db import models
@@ -13,695 +10,394 @@ from .utils import get_current_tenant
 
 class TenantAwareManager(models.Manager):
     """
-    Manager base para modelos tenant-aware.
-    
-    Este manager garante que todas as operações sejam automaticamente
-    filtradas pelo tenant atual, proporcionando isolamento de dados.
+    Manager que filtra automaticamente por tenant.
+    Garante que todas as operações CRUD sejam isoladas por tenant.
     """
-
+    
     def get_queryset(self):
         """
-        Retorna o QuerySet base filtrado pelo tenant atual.
-        
-        Returns:
-            QuerySet: QuerySet filtrado pelo tenant
+        Retorna queryset filtrado pelo tenant atual.
+        Se não há tenant no contexto, retorna queryset vazio para segurança.
         """
-        queryset = super().get_queryset()
+        current_tenant = get_current_tenant()
+        if current_tenant is None:
+            # Se não há tenant no contexto, retorna queryset vazio por segurança
+            return super().get_queryset().none()
         
-        # Aplica filtro de tenant automaticamente
-        tenant = get_current_tenant()
-        if tenant and hasattr(self.model, 'tenant'):
-            queryset = queryset.filter(tenant=tenant)
-        elif tenant and hasattr(self.model, '_meta'):
-            # Verifica se o modelo tem campo tenant implícito
-            tenant_fields = [f for f in self.model._meta.fields 
-                           if f.name in ['tenant', 'tenant_id']]
-            if tenant_fields:
-                queryset = queryset.filter(**{tenant_fields[0].name: tenant})
-        
-        return queryset
-
+        # Filtra pelo tenant atual
+        return super().get_queryset().filter(tenant=current_tenant)
+    
     def create(self, **kwargs):
         """
-        Cria um novo objeto associado ao tenant atual.
-        
-        Args:
-            **kwargs: Argumentos para criação do objeto
-            
-        Returns:
-            Model: Instância do objeto criado
+        Cria um novo objeto associado automaticamente ao tenant atual.
         """
-        # Adiciona o tenant atual automaticamente
-        tenant = get_current_tenant()
-        if tenant and 'tenant' not in kwargs:
-            if hasattr(self.model, 'tenant'):
-                kwargs['tenant'] = tenant
-            elif hasattr(self.model, 'tenant_id'):
-                kwargs['tenant_id'] = tenant.id
+        current_tenant = get_current_tenant()
+        if current_tenant is None:
+            raise ValidationError("Não é possível criar objetos sem um tenant no contexto")
+        
+        # Adiciona o tenant atual aos kwargs se não foi especificado
+        if 'tenant' not in kwargs:
+            kwargs['tenant'] = current_tenant
+        elif kwargs['tenant'] != current_tenant:
+            raise ValidationError("Não é possível criar objetos para outro tenant")
         
         return super().create(**kwargs)
-
+    
     def bulk_create(self, objs, **kwargs):
         """
-        Cria múltiplos objetos associados ao tenant atual.
-        
-        Args:
-            objs: Lista de objetos a serem criados
-            **kwargs: Argumentos adicionais
-            
-        Returns:
-            list: Lista de objetos criados
+        Cria múltiplos objetos em lote, garantindo que todos sejam do tenant atual.
         """
-        # Adiciona o tenant atual a todos os objetos
-        tenant = get_current_tenant()
-        if tenant:
-            for obj in objs:
-                if hasattr(obj, 'tenant') and not obj.tenant:
-                    obj.tenant = tenant
-                elif hasattr(obj, 'tenant_id') and not obj.tenant_id:
-                    obj.tenant_id = tenant.id
+        current_tenant = get_current_tenant()
+        if current_tenant is None:
+            raise ValidationError("Não é possível criar objetos sem um tenant no contexto")
+        
+        # Valida e define o tenant para todos os objetos
+        for obj in objs:
+            if not hasattr(obj, 'tenant') or obj.tenant is None:
+                obj.tenant = current_tenant
+            elif obj.tenant != current_tenant:
+                raise ValidationError("Não é possível criar objetos para outro tenant")
         
         return super().bulk_create(objs, **kwargs)
+    
+    def get_or_create(self, defaults=None, **kwargs):
+        """
+        Obtém ou cria um objeto, garantindo isolamento por tenant.
+        """
+        current_tenant = get_current_tenant()
+        if current_tenant is None:
+            raise ValidationError("Não é possível buscar/criar objetos sem um tenant no contexto")
+        
+        # Adiciona o tenant aos filtros de busca
+        if 'tenant' not in kwargs:
+            kwargs['tenant'] = current_tenant
+        elif kwargs['tenant'] != current_tenant:
+            raise ValidationError("Não é possível buscar objetos de outro tenant")
+        
+        # Adiciona o tenant aos defaults se necessário
+        if defaults and 'tenant' not in defaults:
+            defaults['tenant'] = current_tenant
+        
+        return super().get_or_create(defaults=defaults, **kwargs)
+    
+    def update_or_create(self, defaults=None, **kwargs):
+        """
+        Atualiza ou cria um objeto, garantindo isolamento por tenant.
+        """
+        current_tenant = get_current_tenant()
+        if current_tenant is None:
+            raise ValidationError("Não é possível atualizar/criar objetos sem um tenant no contexto")
+        
+        # Adiciona o tenant aos filtros de busca
+        if 'tenant' not in kwargs:
+            kwargs['tenant'] = current_tenant
+        elif kwargs['tenant'] != current_tenant:
+            raise ValidationError("Não é possível buscar objetos de outro tenant")
+        
+        # Adiciona o tenant aos defaults se necessário
+        if defaults and 'tenant' not in defaults:
+            defaults['tenant'] = current_tenant
+        
+        return super().update_or_create(defaults=defaults, **kwargs)
+    
+    def all_tenants(self):
+        """
+        Retorna queryset com dados de todos os tenants.
+        CUIDADO: Use apenas para operações administrativas!
+        """
+        return super().get_queryset()
+    
+    def for_tenant(self, tenant):
+        """
+        Retorna queryset filtrado por um tenant específico.
+        Útil para operações cross-tenant controladas.
+        """
+        if tenant is None:
+            return super().get_queryset().none()
+        return super().get_queryset().filter(tenant=tenant)
+    
+    def count_by_tenant(self):
+        """
+        Retorna contagem de objetos agrupados por tenant.
+        Útil para relatórios administrativos.
+        """
+        from django.db.models import Count
+        return (super().get_queryset()
+                .values('tenant__name', 'tenant__subdomain')
+                .annotate(count=Count('id'))
+                .order_by('tenant__name'))
 
 
 class TenantAwareModel(models.Model):
     """
-    Modelo base abstrato para modelos que devem ser isolados por tenant.
-    
-    Este modelo adiciona automaticamente:
-    - Campo tenant (ForeignKey para Tenant)
-    - Manager que filtra automaticamente por tenant
-    - Validações para garantir isolamento de dados
-    - Métodos utilitários para operações tenant-aware
+    Modelo base abstrato que fornece funcionalidade tenant-aware.
+    Todos os modelos que herdam desta classe são automaticamente isolados por tenant.
     """
     
-    # Campo tenant será adicionado automaticamente
+    # Referência ao tenant - será adicionada a todos os modelos filhos
     tenant = models.ForeignKey(
         'tenants.Tenant',
         on_delete=models.CASCADE,
-        related_name='%(app_label)s_%(class)s_set',
-        help_text="Tenant ao qual este registro pertence"
+        related_name='%(class)s_set',
+        verbose_name='Tenant',
+        help_text='Tenant ao qual este registro pertence',
+        null=True,  # Temporariamente nullable para migração
+        blank=True
     )
     
-    # Manager padrão que filtra por tenant
+    # Manager padrão com filtros de tenant
     objects = TenantAwareManager()
     
-    # Manager que não filtra por tenant (para operações administrativas)
+    # Manager para acesso a todos os tenants (uso administrativo)
     all_objects = models.Manager()
     
     class Meta:
         abstract = True
-        # Adiciona índice no campo tenant para performance
+        # Índice para melhorar performance das consultas por tenant
         indexes = [
             models.Index(fields=['tenant']),
         ]
-
+    
     def save(self, *args, **kwargs):
         """
-        Sobrescreve o método save para garantir que o tenant seja definido.
+        Sobrescreve o método save para garantir que o tenant seja definido automaticamente.
         """
-        # Define o tenant atual se não foi especificado
+        # Se o tenant não foi definido, usa o tenant atual do contexto
         if not self.tenant_id:
             current_tenant = get_current_tenant()
-            if current_tenant:
-                self.tenant = current_tenant
-            else:
-                raise ValidationError(
-                    "Não é possível salvar o objeto sem um tenant definido. "
-                    "Certifique-se de que há um tenant no contexto atual."
-                )
+            if current_tenant is None:
+                raise ValidationError("Não é possível salvar objetos sem um tenant no contexto")
+            self.tenant = current_tenant
         
-        # Valida se o tenant está ativo
-        if self.tenant and not self.tenant.is_active:
-            raise ValidationError(
-                f"Não é possível salvar dados para o tenant inativo: {self.tenant.name}"
-            )
+        # Valida se o tenant do objeto é o mesmo do contexto atual
+        current_tenant = get_current_tenant()
+        if current_tenant and self.tenant != current_tenant:
+            raise ValidationError("Não é possível salvar objetos de outro tenant")
         
         super().save(*args, **kwargs)
-
+    
+    def delete(self, *args, **kwargs):
+        """
+        Sobrescreve o método delete para validar o tenant.
+        """
+        current_tenant = get_current_tenant()
+        if current_tenant and self.tenant != current_tenant:
+            raise ValidationError("Não é possível excluir objetos de outro tenant")
+        
+        super().delete(*args, **kwargs)
+    
     def clean(self):
         """
-        Validações customizadas para garantir integridade dos dados.
+        Validações customizadas do modelo.
         """
         super().clean()
         
-        # Valida se o tenant está definido
-        if not self.tenant_id:
-            current_tenant = get_current_tenant()
-            if not current_tenant:
-                raise ValidationError(
-                    "Tenant é obrigatório para este modelo."
-                )
-            self.tenant = current_tenant
-        
         # Valida se o tenant está ativo
         if self.tenant and not self.tenant.is_active:
-            raise ValidationError(
-                f"Tenant {self.tenant.name} está inativo."
-            )
-
-    def delete(self, *args, **kwargs):
-        """
-        Sobrescreve o método delete para adicionar validações de tenant.
-        """
-        # Verifica se o tenant atual tem permissão para deletar
-        current_tenant = get_current_tenant()
-        if current_tenant and self.tenant != current_tenant:
-            raise ValidationError(
-                "Não é possível deletar objetos de outros tenants."
-            )
-        
-        super().delete(*args, **kwargs)
-
+            raise ValidationError({'tenant': 'Não é possível usar tenants inativos.'})
+    
     @classmethod
-    def get_for_tenant(cls, tenant):
+    def get_tenant_field_name(cls):
         """
-        Retorna um QuerySet filtrado para um tenant específico.
-        
-        Args:
-            tenant: Instância do modelo Tenant
-            
-        Returns:
-            QuerySet: QuerySet filtrado pelo tenant
+        Retorna o nome do campo que referencia o tenant.
+        Útil para consultas dinâmicas.
         """
-        return cls.all_objects.filter(tenant=tenant)
-
-    @classmethod
-    def create_for_tenant(cls, tenant, **kwargs):
+        return 'tenant'
+    
+    @property
+    def tenant_name(self):
         """
-        Cria um novo objeto para um tenant específico.
-        
-        Args:
-            tenant: Instância do modelo Tenant
-            **kwargs: Argumentos para criação do objeto
-            
-        Returns:
-            Model: Instância do objeto criado
+        Propriedade de conveniência para acessar o nome do tenant.
         """
-        kwargs['tenant'] = tenant
-        return cls.objects.create(**kwargs)
-
-    def is_owned_by_tenant(self, tenant):
+        return self.tenant.name if self.tenant else None
+    
+    @property
+    def tenant_subdomain(self):
         """
-        Verifica se este objeto pertence ao tenant especificado.
-        
-        Args:
-            tenant: Instância do modelo Tenant
-            
-        Returns:
-            bool: True se o objeto pertence ao tenant
+        Propriedade de conveniência para acessar o subdomínio do tenant.
         """
-        return self.tenant == tenant
-
-    def get_tenant_context_data(self):
-        """
-        Retorna dados de contexto do tenant para este objeto.
-        
-        Returns:
-            dict: Dados de contexto do tenant
-        """
-        return {
-            'tenant_id': self.tenant.id,
-            'tenant_name': self.tenant.name,
-            'tenant_subdomain': self.tenant.subdomain,
-            'tenant_schema': self.tenant.schema_name,
-        }
+        return self.tenant.subdomain if self.tenant else None
 
 
 class TenantAwareQuerySet(models.QuerySet):
     """
-    QuerySet customizado que adiciona métodos específicos para multitenant.
+    QuerySet customizado com métodos específicos para tenant-aware models.
     """
-
+    
     def for_tenant(self, tenant):
         """
-        Filtra o QuerySet para um tenant específico.
-        
-        Args:
-            tenant: Instância do modelo Tenant
-            
-        Returns:
-            QuerySet: QuerySet filtrado pelo tenant
+        Filtra o queryset por um tenant específico.
         """
         return self.filter(tenant=tenant)
-
+    
     def exclude_tenant(self, tenant):
         """
         Exclui registros de um tenant específico.
-        
-        Args:
-            tenant: Instância do modelo Tenant
-            
-        Returns:
-            QuerySet: QuerySet sem registros do tenant especificado
         """
         return self.exclude(tenant=tenant)
-
-    def current_tenant(self):
+    
+    def current_tenant_only(self):
         """
-        Filtra o QuerySet para o tenant atual.
-        
-        Returns:
-            QuerySet: QuerySet filtrado pelo tenant atual
+        Filtra apenas pelo tenant atual do contexto.
         """
-        tenant = get_current_tenant()
-        if tenant:
-            return self.for_tenant(tenant)
-        return self.none()
-
+        current_tenant = get_current_tenant()
+        if current_tenant is None:
+            return self.none()
+        return self.filter(tenant=current_tenant)
+    
+    def with_tenant_info(self):
+        """
+        Adiciona informações do tenant ao queryset usando select_related.
+        """
+        return self.select_related('tenant')
+    
     def active_tenants_only(self):
         """
         Filtra apenas registros de tenants ativos.
-        
-        Returns:
-            QuerySet: QuerySet com registros apenas de tenants ativos
         """
         return self.filter(tenant__is_active=True)
-
-    def bulk_create_for_tenant(self, tenant, objs, **kwargs):
+    
+    def by_tenant_plan(self, plan_type):
         """
-        Cria múltiplos objetos para um tenant específico.
-        
-        Args:
-            tenant: Instância do modelo Tenant
-            objs: Lista de objetos a serem criados
-            **kwargs: Argumentos adicionais para bulk_create
-            
-        Returns:
-            list: Lista de objetos criados
+        Filtra registros por tipo de plano do tenant.
         """
-        # Adiciona o tenant a todos os objetos
-        for obj in objs:
-            obj.tenant = tenant
-        
-        return self.bulk_create(objs, **kwargs)
-
-    def update_for_tenant(self, tenant, **kwargs):
+        return self.filter(tenant__plan_type=plan_type)
+    
+    def tenant_statistics(self):
         """
-        Atualiza registros de um tenant específico.
-        
-        Args:
-            tenant: Instância do modelo Tenant
-            **kwargs: Campos a serem atualizados
-            
-        Returns:
-            int: Número de registros atualizados
+        Retorna estatísticas agrupadas por tenant.
         """
-        return self.for_tenant(tenant).update(**kwargs)
-
-    def delete_for_tenant(self, tenant):
-        """
-        Deleta registros de um tenant específico.
-        
-        Args:
-            tenant: Instância do modelo Tenant
-            
-        Returns:
-            tuple: (número de objetos deletados, detalhes por tipo)
-        """
-        return self.for_tenant(tenant).delete()
-
-    def count_by_tenant(self):
-        """
-        Conta registros agrupados por tenant.
-        
-        Returns:
-            dict: Dicionário com contagem por tenant
-        """
-        from django.db.models import Count
-        
-        result = {}
-        counts = self.values('tenant__name').annotate(count=Count('id'))
-        
-        for item in counts:
-            result[item['tenant__name']] = item['count']
-        
-        return result
-
-    def latest_by_tenant(self, tenant, field_name='id'):
-        """
-        Retorna o registro mais recente de um tenant.
-        
-        Args:
-            tenant: Instância do modelo Tenant
-            field_name: Nome do campo para ordenação (padrão: 'id')
-            
-        Returns:
-            Model: Instância do objeto mais recente
-        """
-        return self.for_tenant(tenant).latest(field_name)
-
-    def earliest_by_tenant(self, tenant, field_name='id'):
-        """
-        Retorna o registro mais antigo de um tenant.
-        
-        Args:
-            tenant: Instância do modelo Tenant
-            field_name: Nome do campo para ordenação (padrão: 'id')
-            
-        Returns:
-            Model: Instância do objeto mais antigo
-        """
-        return self.for_tenant(tenant).earliest(field_name)
+        from django.db.models import Count, Avg, Max, Min
+        return (self.values('tenant__name', 'tenant__subdomain')
+                .annotate(
+                    count=Count('id'),
+                    created_min=Min('created_at') if hasattr(self.model, 'created_at') else None,
+                    created_max=Max('created_at') if hasattr(self.model, 'created_at') else None,
+                )
+                .order_by('tenant__name'))
 
 
-class TenantAwareManagerFromQuerySet(models.Manager):
+class TenantAwareManagerWithQuerySet(TenantAwareManager):
     """
-    Manager que usa o TenantAwareQuerySet customizado.
+    Manager que combina TenantAwareManager com TenantAwareQuerySet.
+    Fornece todos os métodos de ambas as classes.
     """
-
+    
     def get_queryset(self):
         """
-        Retorna o QuerySet customizado filtrado pelo tenant atual.
-        
-        Returns:
-            TenantAwareQuerySet: QuerySet customizado
+        Retorna TenantAwareQuerySet filtrado pelo tenant atual.
         """
-        queryset = TenantAwareQuerySet(self.model, using=self._db)
+        current_tenant = get_current_tenant()
+        if current_tenant is None:
+            return TenantAwareQuerySet(self.model, using=self._db).none()
         
-        # Aplica filtro de tenant automaticamente
-        tenant = get_current_tenant()
-        if tenant:
-            queryset = queryset.for_tenant(tenant)
-        
-        return queryset
-
-    def for_tenant(self, tenant):
-        """
-        Retorna um QuerySet para um tenant específico.
-        
-        Args:
-            tenant: Instância do modelo Tenant
-            
-        Returns:
-            QuerySet: QuerySet filtrado pelo tenant
-        """
-        return self.get_queryset().for_tenant(tenant)
-
+        return TenantAwareQuerySet(self.model, using=self._db).filter(tenant=current_tenant)
+    
     def all_tenants(self):
         """
-        Retorna um QuerySet com dados de todos os tenants.
-        
-        Returns:
-            QuerySet: QuerySet sem filtro de tenant
+        Retorna TenantAwareQuerySet com dados de todos os tenants.
         """
         return TenantAwareQuerySet(self.model, using=self._db)
 
-    def create_for_tenant(self, tenant, **kwargs):
-        """
-        Cria um objeto para um tenant específico.
-        
-        Args:
-            tenant: Instância do modelo Tenant
-            **kwargs: Argumentos para criação
-            
-        Returns:
-            Model: Objeto criado
-        """
-        kwargs['tenant'] = tenant
-        return self.create(**kwargs)
 
-    def get_or_create_for_tenant(self, tenant, defaults=None, **kwargs):
-        """
-        Obtém ou cria um objeto para um tenant específico.
-        
-        Args:
-            tenant: Instância do modelo Tenant
-            defaults: Valores padrão para criação
-            **kwargs: Argumentos para busca
-            
-        Returns:
-            tuple: (objeto, criado)
-        """
-        kwargs['tenant'] = tenant
-        return self.get_or_create(defaults=defaults, **kwargs)
-
-    def update_or_create_for_tenant(self, tenant, defaults=None, **kwargs):
-        """
-        Atualiza ou cria um objeto para um tenant específico.
-        
-        Args:
-            tenant: Instância do modelo Tenant
-            defaults: Valores padrão para criação/atualização
-            **kwargs: Argumentos para busca
-            
-        Returns:
-            tuple: (objeto, criado)
-        """
-        kwargs['tenant'] = tenant
-        return self.update_or_create(defaults=defaults, **kwargs)
-
-
-class SharedModel(models.Model):
+# Mixin para adicionar campos de auditoria tenant-aware
+class TenantAwareAuditMixin(models.Model):
     """
-    Modelo base abstrato para modelos compartilhados entre todos os tenants.
-    
-    Este modelo deve ser usado para dados que não são específicos de um tenant,
-    como configurações globais, logs de sistema, etc.
+    Mixin que adiciona campos de auditoria tenant-aware.
     """
+    created_at = models.DateTimeField(auto_now_add=True, verbose_name='Criado em')
+    updated_at = models.DateTimeField(auto_now=True, verbose_name='Atualizado em')
+    created_by = models.CharField(
+        max_length=255, 
+        blank=True, 
+        verbose_name='Criado por',
+        help_text='Email do usuário que criou o registro'
+    )
+    updated_by = models.CharField(
+        max_length=255, 
+        blank=True, 
+        verbose_name='Atualizado por',
+        help_text='Email do usuário que atualizou o registro'
+    )
     
     class Meta:
         abstract = True
-        # Marca o modelo como compartilhado para o database router
-        shared = True
-
+    
     def save(self, *args, **kwargs):
         """
-        Sobrescreve o método save para garantir que seja salvo no schema compartilhado.
+        Automaticamente define created_by e updated_by baseado no contexto.
         """
-        # Para modelos compartilhados, sempre usa o database padrão
-        kwargs.setdefault('using', 'default')
+        # Aqui você pode implementar lógica para capturar o usuário atual
+        # Por exemplo, usando thread-local storage ou middleware
         super().save(*args, **kwargs)
 
 
-class TenantSpecificModel(TenantAwareModel):
+# Função utilitária para converter modelos existentes
+def make_model_tenant_aware(model_class, tenant_field_name='tenant'):
     """
-    Modelo base para dados específicos de tenant com funcionalidades extras.
+    Função utilitária para tornar um modelo existente tenant-aware.
     
-    Este modelo estende TenantAwareModel com funcionalidades adicionais
-    como auditoria, soft delete, etc.
+    CUIDADO: Esta função modifica a classe do modelo em runtime.
+    Use apenas durante migrações ou desenvolvimento.
+    
+    Args:
+        model_class: Classe do modelo a ser modificada
+        tenant_field_name: Nome do campo tenant (padrão: 'tenant')
     """
+    # Adiciona o campo tenant se não existir
+    if not hasattr(model_class, tenant_field_name):
+        tenant_field = models.ForeignKey(
+            'tenants.Tenant',
+            on_delete=models.CASCADE,
+            related_name=f'{model_class._meta.model_name}_set'
+        )
+        model_class.add_to_class(tenant_field_name, tenant_field)
     
-    # Campos de auditoria
-    created_at = models.DateTimeField(auto_now_add=True, verbose_name="Criado em")
-    updated_at = models.DateTimeField(auto_now=True, verbose_name="Atualizado em")
-    created_by = models.CharField(max_length=255, blank=True, verbose_name="Criado por")
-    updated_by = models.CharField(max_length=255, blank=True, verbose_name="Atualizado por")
+    # Substitui o manager padrão
+    if not isinstance(model_class.objects, TenantAwareManager):
+        model_class.add_to_class('objects', TenantAwareManager())
+        model_class.add_to_class('all_objects', models.Manager())
     
-    # Soft delete
-    is_deleted = models.BooleanField(default=False, verbose_name="Deletado")
-    deleted_at = models.DateTimeField(null=True, blank=True, verbose_name="Deletado em")
-    deleted_by = models.CharField(max_length=255, blank=True, verbose_name="Deletado por")
+    # Adiciona métodos de validação se não existirem
+    original_save = model_class.save
+    original_delete = model_class.delete
     
-    # Manager que exclui registros deletados por padrão
-    objects = TenantAwareManagerFromQuerySet()
-    all_objects = models.Manager()  # Inclui registros deletados
-    
-    class Meta:
-        abstract = True
-        indexes = [
-            models.Index(fields=['tenant', 'is_deleted']),
-            models.Index(fields=['tenant', 'created_at']),
-            models.Index(fields=['tenant', 'updated_at']),
-        ]
-
-    def save(self, *args, **kwargs):
-        """
-        Sobrescreve o método save para adicionar informações de auditoria.
-        """
-        # Adiciona informações do usuário atual se disponível
-        from .utils import get_current_tenant
+    def tenant_aware_save(self, *args, **kwargs):
+        if not getattr(self, tenant_field_name + '_id'):
+            current_tenant = get_current_tenant()
+            if current_tenant is None:
+                raise ValidationError("Não é possível salvar objetos sem um tenant no contexto")
+            setattr(self, tenant_field_name, current_tenant)
         
         current_tenant = get_current_tenant()
-        if current_tenant and hasattr(current_tenant, 'current_user'):
-            user_info = str(current_tenant.current_user)
-            if not self.pk:  # Novo registro
-                self.created_by = user_info
-            self.updated_by = user_info
+        if current_tenant and getattr(self, tenant_field_name) != current_tenant:
+            raise ValidationError("Não é possível salvar objetos de outro tenant")
         
-        super().save(*args, **kwargs)
-
-    def delete(self, using=None, keep_parents=False, soft=True):
-        """
-        Sobrescreve o método delete para implementar soft delete.
+        return original_save(self, *args, **kwargs)
+    
+    def tenant_aware_delete(self, *args, **kwargs):
+        current_tenant = get_current_tenant()
+        if current_tenant and getattr(self, tenant_field_name) != current_tenant:
+            raise ValidationError("Não é possível excluir objetos de outro tenant")
         
-        Args:
-            using: Database a ser usado
-            keep_parents: Manter registros pai
-            soft: Se True, faz soft delete; se False, delete real
-        """
-        if soft:
-            # Soft delete
-            self.is_deleted = True
-            self.deleted_at = models.functions.Now()
-            
-            # Adiciona informações do usuário atual se disponível
-            current_tenant = get_current_tenant()
-            if current_tenant and hasattr(current_tenant, 'current_user'):
-                self.deleted_by = str(current_tenant.current_user)
-            
-            self.save(using=using)
-        else:
-            # Delete real
-            super().delete(using=using, keep_parents=keep_parents)
-
-    def restore(self):
-        """
-        Restaura um registro que foi soft deleted.
-        """
-        self.is_deleted = False
-        self.deleted_at = None
-        self.deleted_by = ''
-        self.save()
-
-    @classmethod
-    def get_deleted_objects(cls, tenant=None):
-        """
-        Retorna objetos que foram soft deleted.
-        
-        Args:
-            tenant: Tenant específico (opcional)
-            
-        Returns:
-            QuerySet: QuerySet com objetos deletados
-        """
-        queryset = cls.all_objects.filter(is_deleted=True)
-        if tenant:
-            queryset = queryset.filter(tenant=tenant)
-        return queryset
-
-    def get_audit_trail(self):
-        """
-        Retorna informações de auditoria do objeto.
-        
-        Returns:
-            dict: Informações de auditoria
-        """
-        return {
-            'created_at': self.created_at,
-            'created_by': self.created_by,
-            'updated_at': self.updated_at,
-            'updated_by': self.updated_by,
-            'is_deleted': self.is_deleted,
-            'deleted_at': self.deleted_at,
-            'deleted_by': self.deleted_by,
-        }
+        return original_delete(self, *args, **kwargs)
+    
+    model_class.save = tenant_aware_save
+    model_class.delete = tenant_aware_delete
+    
+    return model_class
 
 
-def tenant_model_factory(model_name, fields=None, meta_options=None):
+# Decorator para tornar modelos tenant-aware
+def tenant_aware(tenant_field_name='tenant'):
     """
-    Factory function para criar modelos tenant-aware dinamicamente.
+    Decorator para tornar um modelo tenant-aware.
     
-    Args:
-        model_name: Nome do modelo
-        fields: Dicionário com campos do modelo
-        meta_options: Opções da classe Meta
-        
-    Returns:
-        type: Classe do modelo criado
+    Usage:
+        @tenant_aware()
+        class MyModel(models.Model):
+            name = models.CharField(max_length=100)
     """
-    if fields is None:
-        fields = {}
-    
-    if meta_options is None:
-        meta_options = {}
-    
-    # Adiciona campos padrão
-    fields.update({
-        '__module__': __name__,
-        'Meta': type('Meta', (), meta_options),
-    })
-    
-    # Cria a classe do modelo
-    return type(model_name, (TenantAwareModel,), fields)
-
-
-def get_tenant_model_stats(tenant):
-    """
-    Obtém estatísticas de modelos para um tenant específico.
-    
-    Args:
-        tenant: Instância do modelo Tenant
-        
-    Returns:
-        dict: Estatísticas dos modelos
-    """
-    from django.apps import apps
-    
-    stats = {}
-    
-    # Itera sobre todos os modelos registrados
-    for model in apps.get_models():
-        # Verifica se o modelo é tenant-aware
-        if (hasattr(model, 'tenant') and 
-            hasattr(model, 'objects') and 
-            hasattr(model.objects, 'for_tenant')):
-            
-            model_name = f"{model._meta.app_label}.{model._meta.model_name}"
-            try:
-                count = model.objects.for_tenant(tenant).count()
-                stats[model_name] = count
-            except Exception:
-                stats[model_name] = 'error'
-    
-    return stats
-
-
-def validate_tenant_data_integrity(tenant):
-    """
-    Valida a integridade dos dados de um tenant.
-    
-    Args:
-        tenant: Instância do modelo Tenant
-        
-    Returns:
-        dict: Resultado da validação
-    """
-    from django.apps import apps
-    
-    result = {
-        'valid': True,
-        'errors': [],
-        'warnings': [],
-        'model_counts': {},
-    }
-    
-    try:
-        # Verifica cada modelo tenant-aware
-        for model in apps.get_models():
-            if (hasattr(model, 'tenant') and 
-                hasattr(model, 'objects') and 
-                hasattr(model.objects, 'for_tenant')):
-                
-                model_name = f"{model._meta.app_label}.{model._meta.model_name}"
-                
-                try:
-                    # Conta registros do tenant
-                    count = model.objects.for_tenant(tenant).count()
-                    result['model_counts'][model_name] = count
-                    
-                    # Verifica se há registros órfãos (sem tenant)
-                    orphan_count = model.all_objects.filter(tenant__isnull=True).count()
-                    if orphan_count > 0:
-                        result['warnings'].append(
-                            f"{model_name}: {orphan_count} registros órfãos encontrados"
-                        )
-                    
-                    # Verifica se há registros de tenants inativos
-                    inactive_count = model.all_objects.filter(
-                        tenant__is_active=False
-                    ).count()
-                    if inactive_count > 0:
-                        result['warnings'].append(
-                            f"{model_name}: {inactive_count} registros de tenants inativos"
-                        )
-                        
-                except Exception as e:
-                    result['errors'].append(f"{model_name}: {str(e)}")
-                    result['valid'] = False
-    
-    except Exception as e:
-        result['errors'].append(f"Erro geral na validação: {str(e)}")
-        result['valid'] = False
-    
-    return result
+    def decorator(model_class):
+        return make_model_tenant_aware(model_class, tenant_field_name)
+    return decorator

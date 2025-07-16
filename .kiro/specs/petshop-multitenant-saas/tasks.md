@@ -80,14 +80,23 @@
   - Configurar Django settings para usar o router customizado
   - _Requisitos: 2.2, 2.3, 3.1_
 
-- [ ] 5. Desenvolver modelos tenant-aware
-  - [ ] 5.1 Criar TenantAwareManager
+- [x] 5. Desenvolver modelos tenant-aware
+
+
+
+
+
+  - [x] 5.1 Criar TenantAwareManager
+
+
     - Implementar manager que filtra automaticamente por tenant
     - Adicionar métodos para operações CRUD com isolamento
     - Criar validações para garantir dados apenas do tenant atual
     - _Requisitos: 2.2, 3.2_
 
-  - [ ] 5.2 Modificar modelos existentes para suporte multitenant
+  - [x] 5.2 Modificar modelos existentes para suporte multitenant
+
+
     - Atualizar modelo Cliente para herdar de TenantAwareModel
     - Modificar modelo Animal para isolamento por tenant
     - Adaptar modelos Servico, Agendamento e Produto
