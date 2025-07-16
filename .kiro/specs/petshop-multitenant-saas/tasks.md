@@ -231,6 +231,7 @@
 
 
 
+
   - [x] 10.1 Adicionar criptografia de dados sensíveis
 
 
@@ -259,6 +260,8 @@
     - _Requisitos: 8.3, 8.4_
 
 - [ ] 11. Desenvolver frontend multitenant
+
+
   - [ ] 11.1 Modificar sistema de autenticação frontend
     - Atualizar componentes de login para incluir tenant
     - Implementar detecção automática de tenant via subdomain
