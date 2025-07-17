@@ -1,45 +1,55 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useTenantData, useTenantCreate, useTenantUpdate, useTenantDelete } from './useTenantData';
 import { useTenantApi } from './useTenantApi';
-import { Usuario, CreateUserData } from '@/lib/api';
+import { Animal } from '@/lib/api';
 
 /**
- * Hook for managing users with tenant isolation
+ * Hook for managing animais with tenant isolation
  */
-export function useUsers() {
+export function useAnimais() {
   const tenantApi = useTenantApi();
   
   // Use tenant-aware data fetching
   const { 
-    data: users, 
+    data: animais, 
     isLoading, 
     error, 
     refresh 
-  } = useTenantData(tenantApi.getUsers, []);
+  } = useTenantData(tenantApi.getAnimais, []);
   
   // Use tenant-aware create operation
   const { 
     create, 
     isCreating, 
     error: createError 
-  } = useTenantCreate<Usuario, CreateUserData>(tenantApi.createUser);
+  } = useTenantCreate<Animal, Omit<Animal, 'id'>>(tenantApi.createAnimal);
   
   // Use tenant-aware update operation
   const { 
     update, 
     isUpdating, 
     error: updateError 
-  } = useTenantUpdate<Usuario, Partial<CreateUserData>>(tenantApi.updateUser);
+  } = useTenantUpdate<Animal, Partial<Animal>>(tenantApi.updateAnimal);
   
   // Use tenant-aware delete operation
   const { 
     remove, 
     isDeleting, 
     error: deleteError 
-  } = useTenantDelete(tenantApi.deleteUser);
+  } = useTenantDelete(tenantApi.deleteAnimal);
+  
+  // Custom function to get animals by cliente
+  const getByCliente = useCallback(async (clienteId: number) => {
+    try {
+      return await tenantApi.getAnimaisByCliente(clienteId);
+    } catch (error) {
+      console.error('Error fetching animals by cliente:', error);
+      throw error;
+    }
+  }, [tenantApi]);
   
   return {
-    users,
+    animais,
     isLoading,
     error,
     refresh,
@@ -51,6 +61,7 @@ export function useUsers() {
     updateError,
     remove,
     isDeleting,
-    deleteError
+    deleteError,
+    getByCliente
   };
 }

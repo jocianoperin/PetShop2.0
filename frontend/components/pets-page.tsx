@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -33,189 +33,81 @@ import {
   FileText,
   Edit,
   Eye,
+  Loader2,
 } from "lucide-react"
-
-const pets = [
-  {
-    id: 101,
-    nome: "Luna",
-    foto: "/placeholder.svg?height=80&width=80",
-    especie: "Canina",
-    raca: "Golden Retriever",
-    porte: "Grande",
-    sexo: "Fêmea",
-    nascimento: "2022-03-12",
-    peso: "28.5 kg",
-    cor: "Dourado",
-    tutorId: 55,
-    tutorNome: "Maria Silva",
-    tutorTelefone: "(11) 99999-1111",
-    tutorEmail: "maria@email.com",
-    endereco: "Rua das Flores, 123",
-    observacoes: "Pet nervoso, usar focinheira durante procedimentos",
-    status: "ativo",
-  },
-  {
-    id: 102,
-    nome: "Thor",
-    foto: "/placeholder.svg?height=80&width=80",
-    especie: "Canina",
-    raca: "Labrador",
-    porte: "Grande",
-    sexo: "Macho",
-    nascimento: "2021-08-15",
-    peso: "32.0 kg",
-    cor: "Preto",
-    tutorId: 56,
-    tutorNome: "João Santos",
-    tutorTelefone: "(11) 99999-2222",
-    tutorEmail: "joao@email.com",
-    endereco: "Av. Principal, 456",
-    observacoes: "",
-    status: "ativo",
-  },
-  {
-    id: 103,
-    nome: "Bella",
-    foto: "/placeholder.svg?height=80&width=80",
-    especie: "Canina",
-    raca: "Poodle",
-    porte: "Pequeno",
-    sexo: "Fêmea",
-    nascimento: "2023-01-20",
-    peso: "8.2 kg",
-    cor: "Branco",
-    tutorId: 57,
-    tutorNome: "Carlos Lima",
-    tutorTelefone: "(11) 99999-3333",
-    tutorEmail: "carlos@email.com",
-    endereco: "Rua do Parque, 789",
-    observacoes: "Primeira vez no pet shop, muito dócil",
-    status: "ativo",
-  },
-  {
-    id: 104,
-    nome: "Max",
-    foto: "/placeholder.svg?height=80&width=80",
-    especie: "Canina",
-    raca: "Bulldog",
-    porte: "Médio",
-    sexo: "Macho",
-    nascimento: "2020-11-05",
-    peso: "22.8 kg",
-    cor: "Tigrado",
-    tutorId: 58,
-    tutorNome: "Ana Rodrigues",
-    tutorTelefone: "(11) 99999-4444",
-    tutorEmail: "ana@email.com",
-    endereco: "Rua da Paz, 321",
-    observacoes: "Dieta especial - ração hipoalergênica",
-    status: "ativo",
-  },
-  {
-    id: 105,
-    nome: "Mimi",
-    foto: "/placeholder.svg?height=80&width=80",
-    especie: "Felina",
-    raca: "Persa",
-    porte: "Pequeno",
-    sexo: "Fêmea",
-    nascimento: "2022-06-30",
-    peso: "4.1 kg",
-    cor: "Cinza",
-    tutorId: 59,
-    tutorNome: "Lucia Ferreira",
-    tutorTelefone: "(11) 99999-5555",
-    tutorEmail: "lucia@email.com",
-    endereco: "Rua dos Gatos, 654",
-    observacoes: "Muito tímida, manter ambiente calmo",
-    status: "ativo",
-  },
-]
-
-const vacinas = [
-  {
-    id: 1,
-    petId: 101,
-    nome: "V8",
-    dataAplicacao: "2024-07-15",
-    dataVencimento: "2025-07-15",
-    veterinario: "Dr. Carlos Vet",
-    lote: "ABC123",
-    status: "em_dia",
-  },
-  {
-    id: 2,
-    petId: 101,
-    nome: "Antirrábica",
-    dataAplicacao: "2024-08-10",
-    dataVencimento: "2025-08-10",
-    veterinario: "Dr. Carlos Vet",
-    lote: "DEF456",
-    status: "em_dia",
-  },
-  {
-    id: 3,
-    petId: 102,
-    nome: "V8",
-    dataAplicacao: "2024-06-20",
-    dataVencimento: "2025-06-20",
-    veterinario: "Dr. Ana Vet",
-    lote: "GHI789",
-    status: "vencendo",
-  },
-  {
-    id: 4,
-    petId: 103,
-    nome: "V8",
-    dataAplicacao: "2023-12-15",
-    dataVencimento: "2024-12-15",
-    veterinario: "Dr. Pedro Vet",
-    lote: "JKL012",
-    status: "vencida",
-  },
-]
-
-const historico = [
-  {
-    id: 1,
-    petId: 101,
-    data: "2025-06-15",
-    tipo: "Banho & Tosa",
-    descricao: "Banho com shampoo antipulgas e tosa higiênica",
-    profissional: "Ana Costa",
-    valor: 90.0,
-    observacoes: "Pet se comportou bem",
-  },
-  {
-    id: 2,
-    petId: 101,
-    data: "2025-05-20",
-    tipo: "Consulta Veterinária",
-    descricao: "Check-up geral e aplicação de vacina",
-    profissional: "Dr. Carlos Vet",
-    valor: 150.0,
-    observacoes: "Saúde em dia",
-  },
-  {
-    id: 3,
-    petId: 102,
-    data: "2025-06-10",
-    tipo: "Hotel",
-    descricao: "Hospedagem por 3 dias",
-    profissional: "Equipe Hotel",
-    valor: 180.0,
-    observacoes: "Pet adaptou-se bem",
-  },
-]
+import { petsService, Pet, Vacina, HistoricoServico } from "@/services/pets"
+import { useAuth } from "@/contexts/AuthProvider"
+import { useTenant } from "@/contexts/TenantProvider"
+import { toast } from "@/components/ui/use-toast"
 
 export function PetsPage() {
   const [searchTerm, setSearchTerm] = useState("")
-  const [selectedPet, setSelectedPet] = useState<(typeof pets)[0] | null>(null)
+  const [selectedPet, setSelectedPet] = useState<Pet | null>(null)
   const [isDialogOpen, setIsDialogOpen] = useState(false)
   const [isDetailDialogOpen, setIsDetailDialogOpen] = useState(false)
   const [selectedDate, setSelectedDate] = useState<Date>()
-
+  const [pets, setPets] = useState<Pet[]>([])
+  const [vacinas, setVacinas] = useState<Vacina[]>([])
+  const [historico, setHistorico] = useState<HistoricoServico[]>([])
+  const [isLoading, setIsLoading] = useState(true)
+  const [loadingError, setLoadingError] = useState<string | null>(null)
+  
+  // Get auth and tenant contexts
+  const { user, isAuthenticated } = useAuth()
+  const { tenant, tenantId } = useTenant()
+  
+  // Fetch pets data from API with tenant context
+  useEffect(() => {
+    const fetchPets = async () => {
+      if (!isAuthenticated || !user) {
+        setLoadingError("Você precisa estar autenticado para visualizar os pets")
+        setIsLoading(false)
+        return
+      }
+      
+      try {
+        setIsLoading(true)
+        // The token will be used by the ApiClient which automatically adds tenant headers
+        const token = localStorage.getItem('access_token') || ''
+        const petsData = await petsService.getPets(token)
+        setPets(petsData)
+        
+        // Fetch all vacinas for all pets in one batch
+        const vacinasPromises = petsData.map(pet => 
+          petsService.getVacinas(pet.id, token)
+            .catch(() => [] as Vacina[]) // Handle individual pet vacinas errors gracefully
+        )
+        
+        const historicoPromises = petsData.map(pet => 
+          petsService.getHistorico(pet.id, token)
+            .catch(() => [] as HistoricoServico[]) // Handle individual pet historico errors gracefully
+        )
+        
+        // Wait for all promises to resolve
+        const allVacinas = await Promise.all(vacinasPromises)
+        const allHistorico = await Promise.all(historicoPromises)
+        
+        // Flatten arrays
+        setVacinas(allVacinas.flat())
+        setHistorico(allHistorico.flat())
+        
+        setLoadingError(null)
+      } catch (error) {
+        console.error('Error fetching pets data:', error)
+        setLoadingError("Erro ao carregar dados dos pets. Verifique sua conexão ou permissões de tenant.")
+        toast({
+          title: "Erro ao carregar dados",
+          description: "Não foi possível carregar os dados dos pets para este tenant.",
+          variant: "destructive"
+        })
+      } finally {
+        setIsLoading(false)
+      }
+    }
+    
+    fetchPets()
+  }, [isAuthenticated, user, tenantId])
+  
   const filteredPets = pets.filter(
     (pet) =>
       pet.nome.toLowerCase().includes(searchTerm.toLowerCase()) ||

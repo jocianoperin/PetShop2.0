@@ -20,7 +20,10 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { format, differenceInDays } from "date-fns"
 import { ptBR } from "date-fns/locale"
 import { Plus, Hotel, CalendarIcon, User, Clock, MapPin, Phone, AlertCircle, CheckCircle, XCircle } from "lucide-react"
-import { api } from "@/lib/api"
+import { useHospedagens } from "@/hooks/useHospedagens"
+import { useAnimais } from "@/hooks/useAnimais"
+import { useClientes } from "@/hooks/useClientes"
+import { useTenant } from "@/contexts/TenantProvider"
 
 // Interfaces para tipar os dados
 interface Pet {

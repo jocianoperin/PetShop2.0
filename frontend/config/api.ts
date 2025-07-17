@@ -11,6 +11,11 @@ export const API_ENDPOINTS = {
     LIST: `${API_BASE_URL}/users/`,
     CREATE: `${API_BASE_URL}/users/`,
   },
+  TENANTS: {
+    REGISTER: `${API_BASE_URL}/tenants/register/`,
+    INFO: `${API_BASE_URL}/tenants/info`,
+    CONFIG: `${API_BASE_URL}/tenants/config/`,
+  },
 };
 
 export const DEFAULT_HEADERS = {

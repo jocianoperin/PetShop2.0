@@ -2,7 +2,14 @@ import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { authService } from '@/services/api';
 import { User, Tenant } from '@/types';
-import { getCurrentTenant, clearCurrentTenant, getTenantHeaders } from '@/lib/tenant';
+import { 
+  getCurrentTenant, 
+  clearCurrentTenant, 
+  getTenantHeaders, 
+  setCurrentTenant, 
+  storeTenantData,
+  addRecentTenant
+} from '@/lib/tenant';
 
 export function useAuthState() {
   const [user, setUser] = useState<User | null>(null);
@@ -24,6 +31,12 @@ export function useAuthState() {
       // Set tenant from user data if available
       if (userData.tenant) {
         setTenant(userData.tenant);
+        // Update tenant in local storage to ensure consistency
+        setCurrentTenant(userData.tenant.subdomain);
+        // Store full tenant data
+        storeTenantData(userData.tenant);
+        // Add to recent tenants
+        addRecentTenant(userData.tenant);
       }
     } catch (error) {
       console.error('Erro ao buscar dados do usuário:', error);
@@ -31,6 +44,7 @@ export function useAuthState() {
       localStorage.removeItem('refresh_token');
       setUser(null);
       setTenant(null);
+      clearCurrentTenant();
     } finally {
       setIsLoading(false);
     }
@@ -41,10 +55,14 @@ export function useAuthState() {
       // Use detected tenant if not provided
       const currentTenant = tenantId || getCurrentTenant();
       
+      if (!currentTenant) {
+        throw new Error('Tenant não especificado. Por favor, forneça um ID de tenant.');
+      }
+      
       const data = await authService.login({ 
         username, 
         password, 
-        tenant_id: currentTenant || undefined 
+        tenant_id: currentTenant
       });
       
       localStorage.setItem('access_token', data.access);
@@ -54,6 +72,23 @@ export function useAuthState() {
       // Set tenant from response
       if (data.tenant) {
         setTenant(data.tenant);
+        // Update tenant in local storage
+        setCurrentTenant(data.tenant.subdomain);
+        // Store full tenant data
+        storeTenantData(data.tenant);
+        // Add to recent tenants list
+        addRecentTenant(data.tenant);
+      } else if (data.user?.tenant) {
+        setTenant(data.user.tenant);
+        // Update tenant in local storage
+        setCurrentTenant(data.user.tenant.subdomain);
+        // Store full tenant data
+        storeTenantData(data.user.tenant);
+        // Add to recent tenants list
+        addRecentTenant(data.user.tenant);
+      } else {
+        // If no tenant in response, use the one we sent
+        setCurrentTenant(currentTenant);
       }
       
       return data.user;

@@ -1,45 +1,45 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useTenantData, useTenantCreate, useTenantUpdate, useTenantDelete } from './useTenantData';
 import { useTenantApi } from './useTenantApi';
-import { Usuario, CreateUserData } from '@/lib/api';
+import { Servico } from '@/lib/api';
 
 /**
- * Hook for managing users with tenant isolation
+ * Hook for managing serviços with tenant isolation
  */
-export function useUsers() {
+export function useServicos() {
   const tenantApi = useTenantApi();
   
   // Use tenant-aware data fetching
   const { 
-    data: users, 
+    data: servicos, 
     isLoading, 
     error, 
     refresh 
-  } = useTenantData(tenantApi.getUsers, []);
+  } = useTenantData(tenantApi.getServicos, []);
   
   // Use tenant-aware create operation
   const { 
     create, 
     isCreating, 
     error: createError 
-  } = useTenantCreate<Usuario, CreateUserData>(tenantApi.createUser);
+  } = useTenantCreate<Servico, Omit<Servico, 'id'>>(tenantApi.createServico);
   
   // Use tenant-aware update operation
   const { 
     update, 
     isUpdating, 
     error: updateError 
-  } = useTenantUpdate<Usuario, Partial<CreateUserData>>(tenantApi.updateUser);
+  } = useTenantUpdate<Servico, Partial<Servico>>(tenantApi.updateServico);
   
   // Use tenant-aware delete operation
   const { 
     remove, 
     isDeleting, 
     error: deleteError 
-  } = useTenantDelete(tenantApi.deleteUser);
+  } = useTenantDelete(tenantApi.deleteServico);
   
   return {
-    users,
+    servicos,
     isLoading,
     error,
     refresh,

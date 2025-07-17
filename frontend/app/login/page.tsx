@@ -1,90 +1,94 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { useAuth } from '@/contexts/AuthProvider';
+import { useTenant } from '@/contexts/TenantProvider';
+import { LoginForm } from '@/components/login-form';
+import { buildTenantUrl } from '@/lib/tenant';
 
 export default function LoginPage() {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const { login } = useAuth();
+  const { tenantId: detectedTenantId, tenant } = useTenant();
   const router = useRouter();
+  const [isRedirecting, setIsRedirecting] = useState(false);
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
+  // If we already have tenant information in the URL (subdomain),
+  // we don't need to show the tenant input field
+  useEffect(() => {
+    // Check if we're on a tenant subdomain
+    if (detectedTenantId && typeof window !== 'undefined') {
+      // Update the page title with tenant name if available
+      if (tenant?.name) {
+        document.title = `${tenant.name} - Login`;
+      }
+    }
+  }, [detectedTenantId, tenant]);
+
+  const handleLogin = async (username: string, password: string, tenantId?: string) => {
     setError('');
     
     try {
-      await login(username, password);
+      // Use the tenant from the login form, or the detected tenant from the subdomain
+      const providedTenantId = tenantId || detectedTenantId;
+      
+      if (!providedTenantId) {
+        setError('Por favor, forneça um ID de tenant');
+        return;
+      }
+      
+      // If we're not already on a tenant subdomain, redirect to the tenant subdomain
+      if (!detectedTenantId && providedTenantId && typeof window !== 'undefined') {
+        setIsRedirecting(true);
+        setError('');
+        
+        // Build the tenant URL with the provided tenant ID
+        const tenantUrl = `${window.location.protocol}//${providedTenantId}.${window.location.host.split('.').slice(1).join('.')}/login`;
+        
+        // Show a message before redirecting
+        setTimeout(() => {
+          window.location.href = tenantUrl;
+        }, 1000);
+        
+        return;
+      }
+      
+      await login(username, password, providedTenantId);
       router.push('/dashboard');
-    } catch (err) {
-      setError('Usuário ou senha inválidos');
+    } catch (err: any) {
+      setError(err.message || 'Usuário ou senha inválidos');
       console.error('Erro no login:', err);
+      setIsRedirecting(false);
     }
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gray-50 py-12 px-4 sm:px-6 lg:px-8">
-      <div className="max-w-md w-full space-y-8">
-        <div>
-          <h2 className="mt-6 text-center text-3xl font-extrabold text-gray-900">
-            Acessar o sistema
-          </h2>
+    <div>
+      {error && (
+        <div className="max-w-md mx-auto mt-4 bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded relative" role="alert">
+          <span className="block sm:inline">{error}</span>
         </div>
-        <form className="mt-8 space-y-6" onSubmit={handleSubmit}>
-          {error && (
-            <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded relative" role="alert">
-              <span className="block sm:inline">{error}</span>
-            </div>
-          )}
-          <div className="rounded-md shadow-sm -space-y-px">
-            <div>
-              <label htmlFor="username" className="sr-only">Usuário</label>
-              <input
-                id="username"
-                name="username"
-                type="text"
-                required
-                className="appearance-none rounded-none relative block w-full px-3 py-2 border border-gray-300 placeholder-gray-500 text-gray-900 rounded-t-md focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 focus:z-10 sm:text-sm"
-                placeholder="Usuário"
-                value={username}
-                onChange={(e) => setUsername(e.target.value)}
-              />
-            </div>
-            <div>
-              <label htmlFor="password" className="sr-only">Senha</label>
-              <input
-                id="password"
-                name="password"
-                type="password"
-                required
-                className="appearance-none rounded-none relative block w-full px-3 py-2 border border-gray-300 placeholder-gray-500 text-gray-900 rounded-b-md focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 focus:z-10 sm:text-sm"
-                placeholder="Senha"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-              />
-            </div>
-          </div>
-
-          <div>
-            <button
-              type="submit"
-              className="group relative w-full flex justify-center py-2 px-4 border border-transparent text-sm font-medium rounded-md text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
-            >
-              Entrar
-            </button>
-          </div>
-        </form>
-        <div className="text-center">
-          <p className="text-sm text-gray-600">
-            Ainda não tem uma conta?{' '}
-            <Link href="/register" className="font-medium text-indigo-600 hover:text-indigo-500">
-              Cadastre-se
-            </Link>
-          </p>
+      )}
+      
+      {isRedirecting && (
+        <div className="max-w-md mx-auto mt-4 bg-blue-100 border border-blue-400 text-blue-700 px-4 py-3 rounded relative" role="alert">
+          <span className="block sm:inline">Redirecionando para o ambiente do tenant...</span>
         </div>
+      )}
+      
+      <LoginForm onLogin={handleLogin} />
+      
+      <div className="text-center mt-4">
+        <p className="text-sm text-gray-600">
+          Ainda não tem uma conta?{' '}
+          <Link href="/register" className="font-medium text-indigo-600 hover:text-indigo-500">
+            Cadastre-se
+          </Link>
+        </p>
       </div>
     </div>
   );

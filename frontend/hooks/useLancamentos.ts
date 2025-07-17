@@ -1,45 +1,45 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useTenantData, useTenantCreate, useTenantUpdate, useTenantDelete } from './useTenantData';
 import { useTenantApi } from './useTenantApi';
-import { Usuario, CreateUserData } from '@/lib/api';
+import { Lancamento } from '@/lib/api';
 
 /**
- * Hook for managing users with tenant isolation
+ * Hook for managing lancamentos financeiros with tenant isolation
  */
-export function useUsers() {
+export function useLancamentos() {
   const tenantApi = useTenantApi();
   
   // Use tenant-aware data fetching
   const { 
-    data: users, 
+    data: lancamentos, 
     isLoading, 
     error, 
     refresh 
-  } = useTenantData(tenantApi.getUsers, []);
+  } = useTenantData(tenantApi.getLancamentos, []);
   
   // Use tenant-aware create operation
   const { 
     create, 
     isCreating, 
     error: createError 
-  } = useTenantCreate<Usuario, CreateUserData>(tenantApi.createUser);
+  } = useTenantCreate<Lancamento, Omit<Lancamento, 'id'>>(tenantApi.createLancamento);
   
   // Use tenant-aware update operation
   const { 
     update, 
     isUpdating, 
     error: updateError 
-  } = useTenantUpdate<Usuario, Partial<CreateUserData>>(tenantApi.updateUser);
+  } = useTenantUpdate<Lancamento, Partial<Lancamento>>(tenantApi.updateLancamento);
   
   // Use tenant-aware delete operation
   const { 
     remove, 
     isDeleting, 
     error: deleteError 
-  } = useTenantDelete(tenantApi.deleteUser);
+  } = useTenantDelete(tenantApi.deleteLancamento);
   
   return {
-    users,
+    lancamentos,
     isLoading,
     error,
     refresh,

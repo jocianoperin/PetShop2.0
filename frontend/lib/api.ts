@@ -8,6 +8,12 @@ export interface Usuario {
   nome: string;
   is_admin: boolean;
   ativo: boolean;
+  tenant?: {
+    id: string;
+    name: string;
+    subdomain: string;
+    schema_name: string;
+  };
 }
 
 export interface AuthResponse {
@@ -85,11 +91,22 @@ export interface Lancamento {
   observacoes?: string;
 }
 
+import { getCurrentTenant, getTenantHeaders } from './tenant';
+
 // Função para tratamento de erros HTTP
 async function handleResponse<T>(response: Response): Promise<T> {
   const data = await response.json().catch(() => ({}));
   if (!response.ok) {
-    const error = new Error(data.message || 'Erro na requisição');
+    // Check for tenant-specific errors
+    if (response.status === 404 && data.code === 'TENANT_NOT_FOUND') {
+      throw new Error(`Tenant não encontrado: ${getCurrentTenant()}`);
+    }
+    
+    if (response.status === 403 && data.code === 'TENANT_INACTIVE') {
+      throw new Error(`Tenant inativo ou suspenso: ${getCurrentTenant()}`);
+    }
+    
+    const error = new Error(data.message || data.detail || 'Erro na requisição');
     (error as any).response = data;
     throw error;
   }
@@ -111,8 +128,8 @@ const getAuthToken = (): string | null => {
   return null;
 };
 
-// Função para adicionar o token de autenticação nas requisições
-const authFetch = async (url: string, options: RequestInit = {}) => {
+// Função para adicionar o token de autenticação e tenant nas requisições
+const authFetch = async (url: string, options: RequestInit = {}, customTenantId?: string) => {
   const token = getAuthToken();
   const headers = new Headers(options.headers);
   
@@ -124,6 +141,15 @@ const authFetch = async (url: string, options: RequestInit = {}) => {
     headers.set('Content-Type', 'application/json');
   }
   
+  // Add tenant headers
+  const tenantHeaders = customTenantId 
+    ? { 'X-Tenant-ID': customTenantId }
+    : getTenantHeaders();
+    
+  Object.entries(tenantHeaders).forEach(([key, value]) => {
+    headers.set(key, value);
+  });
+  
   return fetch(url, {
     ...options,
     headers,
@@ -132,98 +158,263 @@ const authFetch = async (url: string, options: RequestInit = {}) => {
 
 export const api = {
   // Clientes
-  getClientes: async (): Promise<Cliente[]> => {
-    const response = await authFetch(`${API_BASE_URL}/clientes/`);
+  getClientes: async (customTenantId?: string): Promise<Cliente[]> => {
+    const response = await authFetch(`${API_BASE_URL}/clientes/`, {}, customTenantId);
     return handleResponse<Cliente[]>(response);
   },
   
-  createCliente: async (data: Omit<Cliente, 'id'>): Promise<Cliente> => {
-    const response = await authFetch(`${API_BASE_URL}/clientes/`, {
-      method: 'POST',
-      body: JSON.stringify(data),
-    });
+  getCliente: async (id: number, customTenantId?: string): Promise<Cliente> => {
+    const response = await authFetch(`${API_BASE_URL}/clientes/${id}/`, {}, customTenantId);
     return handleResponse<Cliente>(response);
   },
   
+  createCliente: async (data: Omit<Cliente, 'id'>, customTenantId?: string): Promise<Cliente> => {
+    const response = await authFetch(`${API_BASE_URL}/clientes/`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }, customTenantId);
+    return handleResponse<Cliente>(response);
+  },
+  
+  updateCliente: async (id: number, data: Partial<Cliente>, customTenantId?: string): Promise<Cliente> => {
+    const response = await authFetch(`${API_BASE_URL}/clientes/${id}/`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    }, customTenantId);
+    return handleResponse<Cliente>(response);
+  },
+  
+  deleteCliente: async (id: number, customTenantId?: string): Promise<void> => {
+    const response = await authFetch(`${API_BASE_URL}/clientes/${id}/`, {
+      method: 'DELETE',
+    }, customTenantId);
+    if (!response.ok) {
+      throw new Error('Falha ao excluir cliente');
+    }
+  },
+  
   // Animais
-  getAnimais: async (): Promise<Animal[]> => {
-    const response = await authFetch(`${API_BASE_URL}/animais/`);
+  getAnimais: async (customTenantId?: string): Promise<Animal[]> => {
+    const response = await authFetch(`${API_BASE_URL}/animais/`, {}, customTenantId);
     return handleResponse<Animal[]>(response);
   },
   
-  createAnimal: async (data: Omit<Animal, 'id'>): Promise<Animal> => {
-    const response = await authFetch(`${API_BASE_URL}/animais/`, {
-      method: 'POST',
-      body: JSON.stringify(data),
-    });
+  getAnimal: async (id: number, customTenantId?: string): Promise<Animal> => {
+    const response = await authFetch(`${API_BASE_URL}/animais/${id}/`, {}, customTenantId);
     return handleResponse<Animal>(response);
   },
   
+  getAnimaisByCliente: async (clienteId: number, customTenantId?: string): Promise<Animal[]> => {
+    const response = await authFetch(`${API_BASE_URL}/animais/?tutor=${clienteId}`, {}, customTenantId);
+    return handleResponse<Animal[]>(response);
+  },
+  
+  createAnimal: async (data: Omit<Animal, 'id'>, customTenantId?: string): Promise<Animal> => {
+    const response = await authFetch(`${API_BASE_URL}/animais/`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }, customTenantId);
+    return handleResponse<Animal>(response);
+  },
+  
+  updateAnimal: async (id: number, data: Partial<Animal>, customTenantId?: string): Promise<Animal> => {
+    const response = await authFetch(`${API_BASE_URL}/animais/${id}/`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    }, customTenantId);
+    return handleResponse<Animal>(response);
+  },
+  
+  deleteAnimal: async (id: number, customTenantId?: string): Promise<void> => {
+    const response = await authFetch(`${API_BASE_URL}/animais/${id}/`, {
+      method: 'DELETE',
+    }, customTenantId);
+    if (!response.ok) {
+      throw new Error('Falha ao excluir animal');
+    }
+  },
+  
   // Serviços
-  getServicos: async (): Promise<Servico[]> => {
-    const response = await authFetch(`${API_BASE_URL}/servicos/`);
+  getServicos: async (customTenantId?: string): Promise<Servico[]> => {
+    const response = await authFetch(`${API_BASE_URL}/servicos/`, {}, customTenantId);
     return handleResponse<Servico[]>(response);
   },
   
+  getServico: async (id: number, customTenantId?: string): Promise<Servico> => {
+    const response = await authFetch(`${API_BASE_URL}/servicos/${id}/`, {}, customTenantId);
+    return handleResponse<Servico>(response);
+  },
+  
+  createServico: async (data: Omit<Servico, 'id'>, customTenantId?: string): Promise<Servico> => {
+    const response = await authFetch(`${API_BASE_URL}/servicos/`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }, customTenantId);
+    return handleResponse<Servico>(response);
+  },
+  
+  updateServico: async (id: number, data: Partial<Servico>, customTenantId?: string): Promise<Servico> => {
+    const response = await authFetch(`${API_BASE_URL}/servicos/${id}/`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    }, customTenantId);
+    return handleResponse<Servico>(response);
+  },
+  
+  deleteServico: async (id: number, customTenantId?: string): Promise<void> => {
+    const response = await authFetch(`${API_BASE_URL}/servicos/${id}/`, {
+      method: 'DELETE',
+    }, customTenantId);
+    if (!response.ok) {
+      throw new Error('Falha ao excluir serviço');
+    }
+  },
+  
   // Agendamentos
-  getAgendamentos: async () => {
-    const response = await authFetch(`${API_BASE_URL}/agendamentos/`);
+  getAgendamentos: async (customTenantId?: string) => {
+    const response = await authFetch(`${API_BASE_URL}/agendamentos/`, {}, customTenantId);
     return handleResponse<any[]>(response);
   },
   
-  createAgendamento: async (data: Omit<Agendamento, 'id' | 'status'>): Promise<Agendamento> => {
+  getAgendamento: async (id: number, customTenantId?: string): Promise<Agendamento> => {
+    const response = await authFetch(`${API_BASE_URL}/agendamentos/${id}/`, {}, customTenantId);
+    return handleResponse<Agendamento>(response);
+  },
+  
+  createAgendamento: async (data: Omit<Agendamento, 'id' | 'status'>, customTenantId?: string): Promise<Agendamento> => {
     const response = await authFetch(`${API_BASE_URL}/agendamentos/`, {
       method: 'POST',
       body: JSON.stringify({
         ...data,
         status: 'agendado' as const
       }),
-    });
+    }, customTenantId);
     return handleResponse<Agendamento>(response);
   },
   
+  updateAgendamento: async (id: number, data: Partial<Agendamento>, customTenantId?: string): Promise<Agendamento> => {
+    const response = await authFetch(`${API_BASE_URL}/agendamentos/${id}/`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    }, customTenantId);
+    return handleResponse<Agendamento>(response);
+  },
+  
+  deleteAgendamento: async (id: number, customTenantId?: string): Promise<void> => {
+    const response = await authFetch(`${API_BASE_URL}/agendamentos/${id}/`, {
+      method: 'DELETE',
+    }, customTenantId);
+    if (!response.ok) {
+      throw new Error('Falha ao excluir agendamento');
+    }
+  },
+  
   // Hospedagens
-  getHospedagens: async (): Promise<Hospedagem[]> => {
-    const response = await authFetch(`${API_BASE_URL}/hospedagens/`);
+  getHospedagens: async (customTenantId?: string): Promise<Hospedagem[]> => {
+    const response = await authFetch(`${API_BASE_URL}/hospedagens/`, {}, customTenantId);
     return handleResponse<Hospedagem[]>(response);
   },
   
-  createHospedagem: async (data: Omit<Hospedagem, 'id' | 'status'>): Promise<Hospedagem> => {
+  getHospedagem: async (id: number, customTenantId?: string): Promise<Hospedagem> => {
+    const response = await authFetch(`${API_BASE_URL}/hospedagens/${id}/`, {}, customTenantId);
+    return handleResponse<Hospedagem>(response);
+  },
+  
+  createHospedagem: async (data: Omit<Hospedagem, 'id' | 'status'>, customTenantId?: string): Promise<Hospedagem> => {
     const response = await authFetch(`${API_BASE_URL}/hospedagens/`, {
       method: 'POST',
       body: JSON.stringify({
         ...data,
         status: 'reservado' as const
       }),
-    });
+    }, customTenantId);
     return handleResponse<Hospedagem>(response);
   },
   
+  updateHospedagem: async (id: number, data: Partial<Hospedagem>, customTenantId?: string): Promise<Hospedagem> => {
+    const response = await authFetch(`${API_BASE_URL}/hospedagens/${id}/`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    }, customTenantId);
+    return handleResponse<Hospedagem>(response);
+  },
+  
+  deleteHospedagem: async (id: number, customTenantId?: string): Promise<void> => {
+    const response = await authFetch(`${API_BASE_URL}/hospedagens/${id}/`, {
+      method: 'DELETE',
+    }, customTenantId);
+    if (!response.ok) {
+      throw new Error('Falha ao excluir hospedagem');
+    }
+  },
+  
   // Lançamentos Financeiros
-  getLancamentos: async (): Promise<Lancamento[]> => {
-    const response = await authFetch(`${API_BASE_URL}/lancamentos/`);
+  getLancamentos: async (customTenantId?: string): Promise<Lancamento[]> => {
+    const response = await authFetch(`${API_BASE_URL}/lancamentos/`, {}, customTenantId);
     return handleResponse<Lancamento[]>(response);
   },
   
-  createLancamento: async (data: Omit<Lancamento, 'id'>): Promise<Lancamento> => {
+  getLancamento: async (id: number, customTenantId?: string): Promise<Lancamento> => {
+    const response = await authFetch(`${API_BASE_URL}/lancamentos/${id}/`, {}, customTenantId);
+    return handleResponse<Lancamento>(response);
+  },
+  
+  createLancamento: async (data: Omit<Lancamento, 'id'>, customTenantId?: string): Promise<Lancamento> => {
     const response = await authFetch(`${API_BASE_URL}/lancamentos/`, {
       method: 'POST',
       body: JSON.stringify(data),
-    });
+    }, customTenantId);
     return handleResponse<Lancamento>(response);
+  },
+  
+  updateLancamento: async (id: number, data: Partial<Lancamento>, customTenantId?: string): Promise<Lancamento> => {
+    const response = await authFetch(`${API_BASE_URL}/lancamentos/${id}/`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    }, customTenantId);
+    return handleResponse<Lancamento>(response);
+  },
+  
+  deleteLancamento: async (id: number, customTenantId?: string): Promise<void> => {
+    const response = await authFetch(`${API_BASE_URL}/lancamentos/${id}/`, {
+      method: 'DELETE',
+    }, customTenantId);
+    if (!response.ok) {
+      throw new Error('Falha ao excluir lançamento');
+    }
   },
 
   // Autenticação
-  login: async (data: LoginData): Promise<AuthResponse> => {
+  login: async (data: LoginData & { tenant_id?: string }): Promise<AuthResponse> => {
+    // Get tenant headers if tenant_id is provided
+    const tenantHeaders = data.tenant_id ? { 'X-Tenant-ID': data.tenant_id } : getTenantHeaders();
+    
+    const headers = new Headers({
+      'Content-Type': 'application/json',
+    });
+    
+    // Add tenant headers
+    Object.entries(tenantHeaders).forEach(([key, value]) => {
+      headers.set(key, value);
+    });
+    
     const response = await fetch(`${API_BASE_URL}/auth/login`, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
+      headers,
       body: JSON.stringify(data),
     });
+    
     const authData = await handleResponse<AuthResponse>(response);
     setAuthToken(authData.access_token);
+    
+    // Store tenant information if available
+    if (authData.user?.tenant) {
+      // Import these functions dynamically to avoid circular dependencies
+      const { storeTenantData, addRecentTenant } = await import('./tenant');
+      storeTenantData(authData.user.tenant);
+      addRecentTenant(authData.user.tenant);
+    }
+    
     return authData;
   },
 
@@ -233,39 +424,77 @@ export const api = {
     }
   },
 
-  getCurrentUser: async (): Promise<Usuario> => {
-    const response = await authFetch(`${API_BASE_URL}/auth/me`);
-    return handleResponse<Usuario>(response);
+  getCurrentUser: async (customTenantId?: string): Promise<Usuario> => {
+    const response = await authFetch(`${API_BASE_URL}/auth/me`, {}, customTenantId);
+    const userData = await handleResponse<Usuario>(response);
+    
+    // Store tenant information if available
+    if (userData.tenant) {
+      // Import these functions dynamically to avoid circular dependencies
+      const { storeTenantData, addRecentTenant } = await import('./tenant');
+      storeTenantData(userData.tenant);
+      addRecentTenant(userData.tenant);
+    }
+    
+    return userData;
   },
 
   // Gerenciamento de usuários
-  getUsers: async (): Promise<Usuario[]> => {
-    const response = await authFetch(`${API_BASE_URL}/auth/users`);
+  getUsers: async (customTenantId?: string): Promise<Usuario[]> => {
+    const response = await authFetch(`${API_BASE_URL}/auth/users`, {}, customTenantId);
     return handleResponse<Usuario[]>(response);
   },
 
-  createUser: async (data: CreateUserData): Promise<Usuario> => {
+  createUser: async (data: CreateUserData, customTenantId?: string): Promise<Usuario> => {
     const response = await authFetch(`${API_BASE_URL}/auth/register`, {
       method: 'POST',
       body: JSON.stringify(data),
-    });
+    }, customTenantId);
     return handleResponse<Usuario>(response);
   },
 
-  updateUser: async (id: number, data: Partial<CreateUserData>): Promise<Usuario> => {
+  updateUser: async (id: number, data: Partial<CreateUserData>, customTenantId?: string): Promise<Usuario> => {
     const response = await authFetch(`${API_BASE_URL}/auth/users/${id}`, {
       method: 'PUT',
       body: JSON.stringify(data),
-    });
+    }, customTenantId);
     return handleResponse<Usuario>(response);
   },
 
-  deleteUser: async (id: number): Promise<void> => {
+  deleteUser: async (id: number, customTenantId?: string): Promise<void> => {
     const response = await authFetch(`${API_BASE_URL}/auth/users/${id}`, {
       method: 'DELETE',
-    });
+    }, customTenantId);
     if (!response.ok) {
       throw new Error('Falha ao excluir usuário');
+    }
+  },
+  
+  // Tenant-specific operations
+  getTenantInfo: async (tenantId: string): Promise<any> => {
+    const response = await authFetch(`${API_BASE_URL}/tenants/${tenantId}`, {}, tenantId);
+    return handleResponse<any>(response);
+  },
+  
+  getTenantConfig: async (customTenantId?: string): Promise<any> => {
+    const response = await authFetch(`${API_BASE_URL}/tenants/config`, {}, customTenantId);
+    return handleResponse<any>(response);
+  },
+  
+  updateTenantConfig: async (data: any, customTenantId?: string): Promise<any> => {
+    const response = await authFetch(`${API_BASE_URL}/tenants/config`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    }, customTenantId);
+    return handleResponse<any>(response);
+  },
+  
+  validateTenant: async (tenantId: string): Promise<boolean> => {
+    try {
+      await api.getTenantInfo(tenantId);
+      return true;
+    } catch (error) {
+      return false;
     }
   }
 };
