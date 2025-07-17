@@ -238,6 +238,10 @@
 
   - [ ] 11.2 Adaptar componentes para isolamento de dados
 
+
+
+
+
     - Modificar todas as chamadas de API para incluir contexto de tenant
     - Atualizar componentes de listagem para dados isolados
     - Implementar validações de acesso no frontend
