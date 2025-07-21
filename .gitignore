@@ -23,3 +23,6 @@ yarn-error.log*
 # Sistema
 .DS_Store
 Thumbs.db
+
+# env
+petshop_env/

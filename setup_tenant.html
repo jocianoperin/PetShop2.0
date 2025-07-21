@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Configurar Tenant para PetShop</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+            color: #333;
+        }
+        .container {
+            background-color: white;
+            border-radius: 8px;
+            padding: 20px;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+        }
+        h1 {
+            color: #0078d4;
+            margin-top: 0;
+        }
+        button {
+            background-color: #0078d4;
+            color: white;
+            border: none;
+            padding: 10px 15px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 16px;
+            margin: 10px 0;
+        }
+        button:hover {
+            background-color: #005a9e;
+        }
+        .success {
+            color: #107c10;
+            font-weight: bold;
+        }
+        .error {
+            color: #d83b01;
+            font-weight: bold;
+        }
+        .links {
+            margin-top: 20px;
+            padding: 15px;
+            background-color: #f0f0f0;
+            border-radius: 4px;
+        }
+        .links a {
+            display: block;
+            margin: 10px 0;
+            color: #0078d4;
+            text-decoration: none;
+        }
+        .links a:hover {
+            text-decoration: underline;
+        }
+        code {
+            background-color: #f0f0f0;
+            padding: 2px 5px;
+            border-radius: 3px;
+            font-family: 'Courier New', Courier, monospace;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Configurar Tenant para PetShop</h1>
+        <p>Este sistema é multi-tenant e precisa de um tenant específico para acessar o painel administrativo.</p>
+        <p>Clique no botão abaixo para configurar o tenant padrão no seu navegador:</p>
+        
+        <button id="setupTenant">Configurar Tenant Padrão</button>
+        <div id="status"></div>
+        
+        <div class="links">
+            <h3>Acessar o sistema:</h3>
+            <a href="http://localhost:8000/admin?tenant=default" target="_blank">Backend Admin (Django)</a>
+            <a href="http://localhost:3000?tenant=default" target="_blank">Frontend (Next.js)</a>
+        </div>
+        
+        <h3>Informações adicionais:</h3>
+        <p>O tenant padrão tem as seguintes informações:</p>
+        <ul>
+            <li><strong>ID:</strong> 00000000-0000-0000-0000-000000000001</li>
+            <li><strong>Subdomínio:</strong> default</li>
+            <li><strong>Nome:</strong> Default Tenant</li>
+        </ul>
+        
+        <h3>Alternativas para acessar o sistema:</h3>
+        <ol>
+            <li>Usar o subdomínio: <code>http://default.localhost:8000/admin</code></li>
+            <li>Usar o parâmetro de consulta: <code>http://localhost:8000/admin?tenant=default</code></li>
+            <li>Usar o cabeçalho HTTP <code>X-Tenant-ID: default</code> (requer extensão de navegador)</li>
+        </ol>
+    </div>
+
+    <script>
+        document.getElementById('setupTenant').addEventListener('click', function() {
+            try {
+                // Configurar o tenant padrão no localStorage
+                localStorage.setItem('current_tenant', 'default');
+                
+                // Criar dados do tenant
+                const tenantData = {
+                    id: '00000000-0000-0000-0000-000000000001',
+                    name: 'Default Tenant',
+                    subdomain: 'default',
+                    schema_name: 'tenant_default',
+                    is_active: true,
+                    plan_type: 'basic',
+                    created_at: new Date().toISOString()
+                };
+                
+                // Armazenar dados do tenant
+                localStorage.setItem('tenant_data', JSON.stringify(tenantData));
+                
+                // Adicionar aos tenants recentes
+                const recentTenants = JSON.parse(localStorage.getItem('recent_tenants') || '[]');
+                if (!recentTenants.find(t => t.subdomain === 'default')) {
+                    recentTenants.unshift(tenantData);
+                    localStorage.setItem('recent_tenants', JSON.stringify(recentTenants.slice(0, 5)));
+                }
+                
+                document.getElementById('status').innerHTML = '<p class="success">Tenant configurado com sucesso! Agora você pode acessar o sistema usando os links abaixo.</p>';
+            } catch (error) {
+                document.getElementById('status').innerHTML = `<p class="error">Erro ao configurar tenant: ${error.message}</p>`;
+            }
+        });
+    </script>
+</body>
+</html>
