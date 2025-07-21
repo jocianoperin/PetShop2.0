@@ -31,7 +31,7 @@ const menuItems = [
   { id: "pets", label: "Pets", icon: PawPrint },
   { id: "promocoes", label: "Promoções", icon: Megaphone },
   { id: "relatorios", label: "Relatórios", icon: FileText },
-  { id: "configuracoes", label: "Configurações", icon: Settings },
+  { id: "configuracoes", label: "Configurações", icon: Settings, href: "/admin/tenant-config" },
 ]
 
 export function Sidebar({ currentPage, onPageChange, isCollapsed, onToggleCollapse }: SidebarProps) {
@@ -92,7 +92,15 @@ export function Sidebar({ currentPage, onPageChange, isCollapsed, onToggleCollap
                       ? "bg-gradient-to-r from-cyan-500 to-orange-500 text-white shadow-lg"
                       : "hover:bg-gray-100 dark:hover:bg-gray-800 text-gray-700 dark:text-gray-300",
                   )}
-                  onClick={() => onPageChange(item.id)}
+                  onClick={() => {
+                    if (item.href) {
+                      // Navigate to the specified URL
+                      window.location.href = item.href;
+                    } else {
+                      // Use the regular page change handler
+                      onPageChange(item.id);
+                    }
+                  }}
                 >
                   <Icon className={cn("w-5 h-5", !isCollapsed && "mr-3")} />
                   {!isCollapsed && <span className="font-medium">{item.label}</span>}

@@ -1,154 +1,230 @@
 import { useCallback } from 'react';
 import { useTenant } from '@/contexts/TenantProvider';
 import { api } from '@/lib/api';
+import { useTenantValidation } from './useTenantValidation';
+import { toast } from '@/components/ui/use-toast';
 
 /**
  * Custom hook that provides tenant-aware API methods
  * This ensures all API calls include the current tenant context
+ * and validates data ownership
  */
 export function useTenantApi() {
-  const { tenantId } = useTenant();
+  const { tenant, tenantId } = useTenant();
+  const { validateDataOwnership } = useTenantValidation();
+  
+  // Helper function to add tenant_id to data objects
+  const addTenantToData = useCallback(<T extends Record<string, any>>(data: T): T => {
+    if (!tenantId) return data;
+    
+    // Add tenant_id to the data if it doesn't already have one
+    return {
+      ...data,
+      tenant_id: data.tenant_id || tenantId
+    };
+  }, [tenantId]);
+  
+  // Helper function to validate response data belongs to current tenant
+  const validateResponse = useCallback(<T extends { tenant_id?: string }>(data: T | T[]): T | T[] => {
+    if (!validateDataOwnership(data)) {
+      console.error('Data validation failed: tenant mismatch');
+      toast({
+        title: "Erro de validação",
+        description: "Os dados recebidos não pertencem ao tenant atual.",
+        variant: "destructive"
+      });
+      throw new Error('Tenant data validation failed');
+    }
+    return data;
+  }, [validateDataOwnership]);
   
   // Clients (Clientes)
-  const getClientes = useCallback(() => {
-    return api.getClientes(tenantId || undefined);
-  }, [tenantId]);
+  const getClientes = useCallback(async () => {
+    const data = await api.getClientes(tenantId || undefined);
+    return validateResponse(data);
+  }, [tenantId, validateResponse]);
   
-  const getCliente = useCallback((id: number) => {
-    return api.getCliente(id, tenantId || undefined);
-  }, [tenantId]);
+  const getCliente = useCallback(async (id: number) => {
+    const data = await api.getCliente(id, tenantId || undefined);
+    return validateResponse(data);
+  }, [tenantId, validateResponse]);
   
-  const createCliente = useCallback((data: Omit<any, 'id'>) => {
-    return api.createCliente(data, tenantId || undefined);
-  }, [tenantId]);
+  const createCliente = useCallback(async (data: Omit<any, 'id'>) => {
+    const tenantData = addTenantToData(data);
+    const response = await api.createCliente(tenantData, tenantId || undefined);
+    return validateResponse(response);
+  }, [tenantId, addTenantToData, validateResponse]);
   
-  const updateCliente = useCallback((id: number, data: Partial<any>) => {
-    return api.updateCliente(id, data, tenantId || undefined);
-  }, [tenantId]);
+  const updateCliente = useCallback(async (id: number, data: Partial<any>) => {
+    const tenantData = addTenantToData(data);
+    const response = await api.updateCliente(id, tenantData, tenantId || undefined);
+    return validateResponse(response);
+  }, [tenantId, addTenantToData, validateResponse]);
   
-  const deleteCliente = useCallback((id: number) => {
+  const deleteCliente = useCallback(async (id: number) => {
     return api.deleteCliente(id, tenantId || undefined);
   }, [tenantId]);
   
   // Animals (Animais)
-  const getAnimais = useCallback(() => {
-    return api.getAnimais(tenantId || undefined);
-  }, [tenantId]);
+  const getAnimais = useCallback(async () => {
+    const data = await api.getAnimais(tenantId || undefined);
+    return validateResponse(data);
+  }, [tenantId, validateResponse]);
   
-  const getAnimal = useCallback((id: number) => {
-    return api.getAnimal(id, tenantId || undefined);
-  }, [tenantId]);
+  const getAnimal = useCallback(async (id: number) => {
+    const data = await api.getAnimal(id, tenantId || undefined);
+    return validateResponse(data);
+  }, [tenantId, validateResponse]);
   
-  const getAnimaisByCliente = useCallback((clienteId: number) => {
-    return api.getAnimaisByCliente(clienteId, tenantId || undefined);
-  }, [tenantId]);
+  const getAnimaisByCliente = useCallback(async (clienteId: number) => {
+    const data = await api.getAnimaisByCliente(clienteId, tenantId || undefined);
+    return validateResponse(data);
+  }, [tenantId, validateResponse]);
   
-  const createAnimal = useCallback((data: Omit<any, 'id'>) => {
-    return api.createAnimal(data, tenantId || undefined);
-  }, [tenantId]);
+  const createAnimal = useCallback(async (data: Omit<any, 'id'>) => {
+    const tenantData = addTenantToData(data);
+    const response = await api.createAnimal(tenantData, tenantId || undefined);
+    return validateResponse(response);
+  }, [tenantId, addTenantToData, validateResponse]);
   
-  const updateAnimal = useCallback((id: number, data: Partial<any>) => {
-    return api.updateAnimal(id, data, tenantId || undefined);
-  }, [tenantId]);
+  const updateAnimal = useCallback(async (id: number, data: Partial<any>) => {
+    const tenantData = addTenantToData(data);
+    const response = await api.updateAnimal(id, tenantData, tenantId || undefined);
+    return validateResponse(response);
+  }, [tenantId, addTenantToData, validateResponse]);
   
-  const deleteAnimal = useCallback((id: number) => {
+  const deleteAnimal = useCallback(async (id: number) => {
     return api.deleteAnimal(id, tenantId || undefined);
   }, [tenantId]);
   
   // Services (Serviços)
-  const getServicos = useCallback(() => {
-    return api.getServicos(tenantId || undefined);
-  }, [tenantId]);
+  const getServicos = useCallback(async () => {
+    const data = await api.getServicos(tenantId || undefined);
+    return validateResponse(data);
+  }, [tenantId, validateResponse]);
   
-  const getServico = useCallback((id: number) => {
-    return api.getServico(id, tenantId || undefined);
-  }, [tenantId]);
+  const getServico = useCallback(async (id: number) => {
+    const data = await api.getServico(id, tenantId || undefined);
+    return validateResponse(data);
+  }, [tenantId, validateResponse]);
   
-  const createServico = useCallback((data: Omit<any, 'id'>) => {
-    return api.createServico(data, tenantId || undefined);
-  }, [tenantId]);
+  const createServico = useCallback(async (data: Omit<any, 'id'>) => {
+    const tenantData = addTenantToData(data);
+    const response = await api.createServico(tenantData, tenantId || undefined);
+    return validateResponse(response);
+  }, [tenantId, addTenantToData, validateResponse]);
   
-  const updateServico = useCallback((id: number, data: Partial<any>) => {
-    return api.updateServico(id, data, tenantId || undefined);
-  }, [tenantId]);
+  const updateServico = useCallback(async (id: number, data: Partial<any>) => {
+    const tenantData = addTenantToData(data);
+    const response = await api.updateServico(id, tenantData, tenantId || undefined);
+    return validateResponse(response);
+  }, [tenantId, addTenantToData, validateResponse]);
   
-  const deleteServico = useCallback((id: number) => {
+  const deleteServico = useCallback(async (id: number) => {
     return api.deleteServico(id, tenantId || undefined);
   }, [tenantId]);
   
   // Appointments (Agendamentos)
-  const getAgendamentos = useCallback(() => {
-    return api.getAgendamentos(tenantId || undefined);
-  }, [tenantId]);
+  const getAgendamentos = useCallback(async () => {
+    const data = await api.getAgendamentos(tenantId || undefined);
+    return validateResponse(data);
+  }, [tenantId, validateResponse]);
   
-  const getAgendamento = useCallback((id: number) => {
-    return api.getAgendamento(id, tenantId || undefined);
-  }, [tenantId]);
+  const getAgendamento = useCallback(async (id: number) => {
+    const data = await api.getAgendamento(id, tenantId || undefined);
+    return validateResponse(data);
+  }, [tenantId, validateResponse]);
   
-  const createAgendamento = useCallback((data: Omit<any, 'id' | 'status'>) => {
-    return api.createAgendamento(data, tenantId || undefined);
-  }, [tenantId]);
+  const createAgendamento = useCallback(async (data: Omit<any, 'id' | 'status'>) => {
+    const tenantData = addTenantToData(data);
+    const response = await api.createAgendamento(tenantData, tenantId || undefined);
+    return validateResponse(response);
+  }, [tenantId, addTenantToData, validateResponse]);
   
-  const updateAgendamento = useCallback((id: number, data: Partial<any>) => {
-    return api.updateAgendamento(id, data, tenantId || undefined);
-  }, [tenantId]);
+  const updateAgendamento = useCallback(async (id: number, data: Partial<any>) => {
+    const tenantData = addTenantToData(data);
+    const response = await api.updateAgendamento(id, tenantData, tenantId || undefined);
+    return validateResponse(response);
+  }, [tenantId, addTenantToData, validateResponse]);
   
-  const deleteAgendamento = useCallback((id: number) => {
+  const deleteAgendamento = useCallback(async (id: number) => {
     return api.deleteAgendamento(id, tenantId || undefined);
   }, [tenantId]);
   
   // Lodging (Hospedagens)
-  const getHospedagens = useCallback(() => {
-    return api.getHospedagens(tenantId || undefined);
-  }, [tenantId]);
+  const getHospedagens = useCallback(async () => {
+    const data = await api.getHospedagens(tenantId || undefined);
+    return validateResponse(data);
+  }, [tenantId, validateResponse]);
   
-  const getHospedagem = useCallback((id: number) => {
-    return api.getHospedagem(id, tenantId || undefined);
-  }, [tenantId]);
+  const getHospedagem = useCallback(async (id: number) => {
+    const data = await api.getHospedagem(id, tenantId || undefined);
+    return validateResponse(data);
+  }, [tenantId, validateResponse]);
   
-  const createHospedagem = useCallback((data: Omit<any, 'id' | 'status'>) => {
-    return api.createHospedagem(data, tenantId || undefined);
-  }, [tenantId]);
+  const createHospedagem = useCallback(async (data: Omit<any, 'id' | 'status'>) => {
+    const tenantData = addTenantToData(data);
+    const response = await api.createHospedagem(tenantData, tenantId || undefined);
+    return validateResponse(response);
+  }, [tenantId, addTenantToData, validateResponse]);
   
-  const updateHospedagem = useCallback((id: number, data: Partial<any>) => {
-    return api.updateHospedagem(id, data, tenantId || undefined);
-  }, [tenantId]);
+  const updateHospedagem = useCallback(async (id: number, data: Partial<any>) => {
+    const tenantData = addTenantToData(data);
+    const response = await api.updateHospedagem(id, tenantData, tenantId || undefined);
+    return validateResponse(response);
+  }, [tenantId, addTenantToData, validateResponse]);
   
-  const deleteHospedagem = useCallback((id: number) => {
+  const deleteHospedagem = useCallback(async (id: number) => {
     return api.deleteHospedagem(id, tenantId || undefined);
   }, [tenantId]);
   
   // Financial entries (Lançamentos)
-  const getLancamentos = useCallback(() => {
-    return api.getLancamentos(tenantId || undefined);
-  }, [tenantId]);
+  const getLancamentos = useCallback(async () => {
+    const data = await api.getLancamentos(tenantId || undefined);
+    return validateResponse(data);
+  }, [tenantId, validateResponse]);
   
-  const getLancamento = useCallback((id: number) => {
-    return api.getLancamento(id, tenantId || undefined);
-  }, [tenantId]);
+  const getLancamento = useCallback(async (id: number) => {
+    const data = await api.getLancamento(id, tenantId || undefined);
+    return validateResponse(data);
+  }, [tenantId, validateResponse]);
   
-  const createLancamento = useCallback((data: Omit<any, 'id'>) => {
-    return api.createLancamento(data, tenantId || undefined);
-  }, [tenantId]);
+  const createLancamento = useCallback(async (data: Omit<any, 'id'>) => {
+    const tenantData = addTenantToData(data);
+    const response = await api.createLancamento(tenantData, tenantId || undefined);
+    return validateResponse(response);
+  }, [tenantId, addTenantToData, validateResponse]);
   
-  const updateLancamento = useCallback((id: number, data: Partial<any>) => {
-    return api.updateLancamento(id, data, tenantId || undefined);
-  }, [tenantId]);
+  const updateLancamento = useCallback(async (id: number, data: Partial<any>) => {
+    const tenantData = addTenantToData(data);
+    const response = await api.updateLancamento(id, tenantData, tenantId || undefined);
+    return validateResponse(response);
+  }, [tenantId, addTenantToData, validateResponse]);
   
-  const deleteLancamento = useCallback((id: number) => {
+  const deleteLancamento = useCallback(async (id: number) => {
     return api.deleteLancamento(id, tenantId || undefined);
   }, [tenantId]);
   
   // Tenant configuration
-  const getTenantConfig = useCallback(() => {
-    return api.getTenantConfig(tenantId || undefined);
+  const getTenantConfig = useCallback(async () => {
+    const data = await api.getTenantConfig(tenantId || undefined);
+    return data; // No validation needed for tenant config
   }, [tenantId]);
   
-  const updateTenantConfig = useCallback((data: any) => {
-    return api.updateTenantConfig(data, tenantId || undefined);
+  const updateTenantConfig = useCallback(async (data: any) => {
+    const response = await api.updateTenantConfig(data, tenantId || undefined);
+    return response; // No validation needed for tenant config
   }, [tenantId]);
   
   return {
+    // Tenant info
+    tenant,
+    tenantId,
+    
+    // Helper functions
+    addTenantToData,
+    validateResponse,
+    
     // Clients
     getClientes,
     getCliente,

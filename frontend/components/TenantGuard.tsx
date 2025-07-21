@@ -5,58 +5,52 @@ import { useTenant } from '@/contexts/TenantProvider';
 import { useAuth } from '@/contexts/AuthProvider';
 import { useRouter } from 'next/navigation';
 import { Card, CardContent } from '@/components/ui/card';
-import { Loader2 } from 'lucide-react';
+import { Loader2, AlertTriangle, ShieldAlert } from 'lucide-react';
+import { authService } from '@/services/api';
+import { toast } from '@/components/ui/use-toast';
+import { useTenantValidation } from '@/hooks/useTenantValidation';
+import { Button } from '@/components/ui/button';
 
 interface TenantGuardProps {
   children: ReactNode;
   fallback?: ReactNode;
+  requiredPermissions?: string[];
+  validateWithBackend?: boolean;
 }
 
 /**
  * A component that ensures the user has access to the current tenant
  * Redirects to login if not authenticated or shows an error if tenant is invalid
+ * Uses the useTenantValidation hook for consistent tenant validation
  */
-export function TenantGuard({ children, fallback }: TenantGuardProps) {
+export function TenantGuard({ 
+  children, 
+  fallback, 
+  requiredPermissions = [],
+  validateWithBackend = true
+}: TenantGuardProps) {
+  const router = useRouter();
   const { tenant, tenantId, isLoading: isTenantLoading } = useTenant();
   const { isAuthenticated, isLoading: isAuthLoading } = useAuth();
-  const [isValidating, setIsValidating] = useState(true);
-  const [isValid, setIsValid] = useState(false);
-  const router = useRouter();
+  
+  // Use the tenant validation hook for consistent validation
+  const {
+    isValidating,
+    isValid,
+    hasPermissions,
+    error,
+    validateDataOwnership
+  } = useTenantValidation({
+    validateWithBackend,
+    requiredPermissions
+  });
 
+  // Redirect to login if not authenticated
   useEffect(() => {
-    const validateTenant = async () => {
-      // If still loading tenant or auth info, wait
-      if (isTenantLoading || isAuthLoading) {
-        return;
-      }
-
-      // If not authenticated, redirect to login
-      if (!isAuthenticated) {
-        router.push('/login');
-        return;
-      }
-
-      // If no tenant ID, show error
-      if (!tenantId) {
-        setIsValid(false);
-        setIsValidating(false);
-        return;
-      }
-
-      // If tenant is loaded and active, allow access
-      if (tenant && tenant.is_active) {
-        setIsValid(true);
-        setIsValidating(false);
-        return;
-      }
-
-      // Otherwise, tenant is invalid
-      setIsValid(false);
-      setIsValidating(false);
-    };
-
-    validateTenant();
-  }, [tenant, tenantId, isAuthenticated, isTenantLoading, isAuthLoading, router]);
+    if (!isAuthLoading && !isAuthenticated) {
+      router.push('/login');
+    }
+  }, [isAuthenticated, isAuthLoading, router]);
 
   // Show loading state
   if (isValidating || isTenantLoading || isAuthLoading) {
@@ -74,6 +68,31 @@ export function TenantGuard({ children, fallback }: TenantGuardProps) {
     );
   }
 
+  // Show permission error if user doesn't have required permissions
+  if (isValid && !hasPermissions) {
+    return (
+      <div className="flex items-center justify-center min-h-screen">
+        <Card className="w-full max-w-md p-6 rounded-3xl border-0 shadow-lg">
+          <CardContent className="flex flex-col items-center justify-center p-6">
+            <div className="w-16 h-16 bg-yellow-100 rounded-full flex items-center justify-center mb-4">
+              <ShieldAlert className="h-8 w-8 text-yellow-600" />
+            </div>
+            <h3 className="text-xl font-bold text-gray-900 dark:text-white mb-2">Permissão Insuficiente</h3>
+            <p className="text-center text-gray-600 dark:text-gray-400 mb-4">
+              Você não tem todas as permissões necessárias para acessar esta página.
+            </p>
+            <Button
+              onClick={() => router.push('/dashboard')}
+              className="px-4 py-2 bg-gradient-to-r from-cyan-500 to-orange-500 text-white rounded-xl hover:from-cyan-600 hover:to-orange-600 transition-colors"
+            >
+              Voltar para o Dashboard
+            </Button>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
   // Show error state if tenant is invalid
   if (!isValid) {
     if (fallback) {
@@ -85,37 +104,29 @@ export function TenantGuard({ children, fallback }: TenantGuardProps) {
         <Card className="w-full max-w-md p-6 rounded-3xl border-0 shadow-lg">
           <CardContent className="flex flex-col items-center justify-center p-6">
             <div className="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center mb-4">
-              <svg
-                xmlns="http://www.w3.org/2000/svg"
-                className="h-8 w-8 text-red-600"
-                fill="none"
-                viewBox="0 0 24 24"
-                stroke="currentColor"
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={2}
-                  d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"
-                />
-              </svg>
+              <AlertTriangle className="h-8 w-8 text-red-600" />
             </div>
             <h3 className="text-xl font-bold text-gray-900 dark:text-white mb-2">Acesso Negado</h3>
             <p className="text-center text-gray-600 dark:text-gray-400 mb-4">
-              Você não tem acesso a este tenant ou o tenant não existe.
+              {error || 'Você não tem acesso a este tenant ou o tenant não existe.'}
             </p>
-            <button
+            <Button
               onClick={() => router.push('/login')}
               className="px-4 py-2 bg-gradient-to-r from-cyan-500 to-orange-500 text-white rounded-xl hover:from-cyan-600 hover:to-orange-600 transition-colors"
             >
               Voltar para o Login
-            </button>
+            </Button>
           </CardContent>
         </Card>
       </div>
     );
   }
 
-  // Render children if tenant is valid
-  return <>{children}</>;
+  // Create a tenant context provider for the children
+  // This ensures all children have access to tenant validation functions
+  return (
+    <>
+      {children}
+    </>
+  );
 }

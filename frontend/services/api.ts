@@ -14,9 +14,9 @@ export class ApiClient {
       ? { 'X-Tenant-ID': customTenantId }
       : getTenantHeaders();
     
-    // Merge headers
+    // Merge headers - don't set Content-Type for FormData
     const headers = {
-      'Content-Type': 'application/json',
+      ...(!(options.body instanceof FormData) && { 'Content-Type': 'application/json' }),
       ...options.headers,
       ...tenantHeaders,
     };
@@ -109,6 +109,19 @@ export class ApiClient {
       {
         method: 'DELETE',
         headers,
+      },
+      customTenantId
+    );
+  }
+  
+  static async postFormData<T>(url: string, formData: FormData, token?: string, customTenantId?: string): Promise<T> {
+    const headers = token ? getAuthHeader(token) : {};
+    return this.request<T>(
+      url, 
+      {
+        method: 'POST',
+        headers,
+        body: formData,
       },
       customTenantId
     );

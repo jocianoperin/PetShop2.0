@@ -34,13 +34,18 @@ import {
   Edit,
   Eye,
   Loader2,
+  ShieldAlert,
 } from "lucide-react"
 import { petsService, Pet, Vacina, HistoricoServico } from "@/services/pets"
 import { useAuth } from "@/contexts/AuthProvider"
 import { useTenant } from "@/contexts/TenantProvider"
+import { useTenantValidation } from "@/hooks/useTenantValidation"
 import { toast } from "@/components/ui/use-toast"
+import { useTenantApi } from "@/hooks/useTenantApi"
+import { withTenantIsolation } from "./with-tenant-isolation"
 
-export function PetsPage() {
+// Base component without tenant isolation
+function PetsPageBase({ validateTenantData }: any) {
   const [searchTerm, setSearchTerm] = useState("")
   const [selectedPet, setSelectedPet] = useState<Pet | null>(null)
   const [isDialogOpen, setIsDialogOpen] = useState(false)
@@ -52,9 +57,20 @@ export function PetsPage() {
   const [isLoading, setIsLoading] = useState(true)
   const [loadingError, setLoadingError] = useState<string | null>(null)
   
-  // Get auth and tenant contexts
+  // Get auth context
   const { user, isAuthenticated } = useAuth()
-  const { tenant, tenantId } = useTenant()
+  
+  // Use tenant API hook for tenant-aware API calls
+  const { 
+    tenantId,
+    tenant,
+    // Use the tenant-aware API methods
+    getAnimais,
+    getAnimal,
+    createAnimal,
+    updateAnimal,
+    deleteAnimal
+  } = useTenantApi();
   
   // Fetch pets data from API with tenant context
   useEffect(() => {
@@ -65,21 +81,34 @@ export function PetsPage() {
         return
       }
       
+      if (!tenant || !tenantId) {
+        setLoadingError("Tenant inválido ou não autorizado")
+        setIsLoading(false)
+        return
+      }
+      
       try {
         setIsLoading(true)
-        // The token will be used by the ApiClient which automatically adds tenant headers
-        const token = localStorage.getItem('access_token') || ''
-        const petsData = await petsService.getPets(token)
-        setPets(petsData)
         
-        // Fetch all vacinas for all pets in one batch
-        const vacinasPromises = petsData.map(pet => 
-          petsService.getVacinas(pet.id, token)
+        // Use tenant-aware API methods that automatically handle tenant context
+        const petsData = await getAnimais()
+        
+        // Validate that all pets belong to the current tenant
+        const validatedPets = validateTenantData(petsData)
+        if (!validatedPets) {
+          throw new Error("Dados de pets não pertencem ao tenant atual");
+        }
+        
+        setPets(validatedPets as Pet[])
+        
+        // Fetch all vacinas for all pets in one batch using tenant-aware API
+        const vacinasPromises = (validatedPets as Pet[]).map(pet => 
+          petsService.getVacinas(pet.id, undefined, tenantId)
             .catch(() => [] as Vacina[]) // Handle individual pet vacinas errors gracefully
         )
         
-        const historicoPromises = petsData.map(pet => 
-          petsService.getHistorico(pet.id, token)
+        const historicoPromises = (validatedPets as Pet[]).map(pet => 
+          petsService.getHistorico(pet.id, undefined, tenantId)
             .catch(() => [] as HistoricoServico[]) // Handle individual pet historico errors gracefully
         )
         
@@ -87,9 +116,19 @@ export function PetsPage() {
         const allVacinas = await Promise.all(vacinasPromises)
         const allHistorico = await Promise.all(historicoPromises)
         
-        // Flatten arrays
-        setVacinas(allVacinas.flat())
-        setHistorico(allHistorico.flat())
+        // Flatten arrays and validate tenant ownership
+        const flattenedVacinas = allVacinas.flat();
+        const flattenedHistorico = allHistorico.flat();
+        
+        const validatedVacinas = validateTenantData(flattenedVacinas);
+        const validatedHistorico = validateTenantData(flattenedHistorico);
+        
+        if (!validatedVacinas || !validatedHistorico) {
+          throw new Error("Alguns dados não pertencem ao tenant atual");
+        }
+        
+        setVacinas(validatedVacinas as Vacina[])
+        setHistorico(validatedHistorico as HistoricoServico[])
         
         setLoadingError(null)
       } catch (error) {
@@ -106,13 +145,17 @@ export function PetsPage() {
     }
     
     fetchPets()
-  }, [isAuthenticated, user, tenantId])
+  }, [isAuthenticated, user, tenantId, tenant, getAnimais, validateTenantData])
   
+  // Filter pets with tenant validation
   const filteredPets = pets.filter(
     (pet) =>
-      pet.nome.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      // First ensure the pet belongs to the current tenant
+      (pet.tenant_id === tenantId || !pet.tenant_id) &&
+      // Then apply search filters
+      (pet.nome.toLowerCase().includes(searchTerm.toLowerCase()) ||
       pet.tutorNome.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      pet.raca.toLowerCase().includes(searchTerm.toLowerCase()),
+      pet.raca.toLowerCase().includes(searchTerm.toLowerCase()))
   )
 
   const getVacinaStatus = (status: string) => {
@@ -604,34 +647,74 @@ export function PetsPage() {
       </Dialog>
 
       {/* Estatísticas */}
-      <div className="grid grid-cols-1 sm:grid-cols-4 gap-6">
-        <Card className="rounded-3xl border-0 shadow-lg">
-          <CardContent className="p-6 text-center">
-            <div className="w-12 h-12 mx-auto mb-3 bg-cyan-100 dark:bg-cyan-900 rounded-2xl flex items-center justify-center">
-              <PawPrint className="w-6 h-6 text-cyan-600" />
-            </div>
-            <p className="text-2xl font-bold text-gray-900 dark:text-white">{pets.length}</p>
-            <p className="text-sm text-gray-600 dark:text-gray-400">Total de Pets</p>
-          </CardContent>
-        </Card>
+      {/* Loading and error states */}
+      {isLoading && (
+        <div className="flex items-center justify-center min-h-[200px]">
+          <Card className="w-full max-w-md p-6 rounded-3xl border-0 shadow-lg">
+            <CardContent className="flex flex-col items-center justify-center p-6">
+              <Loader2 className="h-8 w-8 text-cyan-500 animate-spin mb-4" />
+              <p className="text-base text-center text-gray-700 dark:text-gray-300">
+                Carregando dados dos pets para o tenant {tenant?.name}...
+              </p>
+            </CardContent>
+          </Card>
+        </div>
+      )}
 
-        <Card className="rounded-3xl border-0 shadow-lg">
-          <CardContent className="p-6 text-center">
-            <div className="w-12 h-12 mx-auto mb-3 bg-green-100 dark:bg-green-900 rounded-2xl flex items-center justify-center">
-              <Syringe className="w-6 h-6 text-green-600" />
-            </div>
-            <p className="text-2xl font-bold text-gray-900 dark:text-white">
-              {vacinas.filter((v) => v.status === "em_dia").length}
-            </p>
-            <p className="text-sm text-gray-600 dark:text-gray-400">Vacinas em Dia</p>
-          </CardContent>
-        </Card>
+      {!isLoading && loadingError && (
+        <div className="flex items-center justify-center min-h-[200px]">
+          <Card className="w-full max-w-md p-6 rounded-3xl border-0 shadow-lg">
+            <CardContent className="flex flex-col items-center justify-center p-6">
+              <div className="w-12 h-12 bg-red-100 rounded-full flex items-center justify-center mb-4">
+                <ShieldAlert className="h-6 w-6 text-red-600" />
+              </div>
+              <h3 className="text-lg font-bold text-gray-900 dark:text-white mb-2">Erro ao Carregar Dados</h3>
+              <p className="text-center text-gray-600 dark:text-gray-400 mb-4">
+                {loadingError}
+              </p>
+              <Button
+                onClick={() => window.location.reload()}
+                className="px-4 py-2 bg-gradient-to-r from-cyan-500 to-orange-500 text-white rounded-xl hover:from-cyan-600 hover:to-orange-600 transition-colors"
+              >
+                Tentar Novamente
+              </Button>
+            </CardContent>
+          </Card>
+        </div>
+      )}
 
-        <Card className="rounded-3xl border-0 shadow-lg">
-          <CardContent className="p-6 text-center">
-            <div className="w-12 h-12 mx-auto mb-3 bg-yellow-100 dark:bg-yellow-900 rounded-2xl flex items-center justify-center">
-              <AlertTriangle className="w-6 h-6 text-yellow-600" />
-            </div>
+      {!isLoading && !loadingError && (
+        <div className="grid grid-cols-1 sm:grid-cols-4 gap-6">
+          <Card className="rounded-3xl border-0 shadow-lg">
+            <CardContent className="p-6 text-center">
+              <div className="w-12 h-12 mx-auto mb-3 bg-cyan-100 dark:bg-cyan-900 rounded-2xl flex items-center justify-center">
+                <PawPrint className="w-6 h-6 text-cyan-600" />
+              </div>
+              <p className="text-2xl font-bold text-gray-900 dark:text-white">{pets.length}</p>
+              <p className="text-sm text-gray-600 dark:text-gray-400">Total de Pets</p>
+              {tenant && (
+                <p className="text-xs text-gray-500 mt-1">Tenant: {tenant.name}</p>
+              )}
+            </CardContent>
+          </Card>
+
+          <Card className="rounded-3xl border-0 shadow-lg">
+            <CardContent className="p-6 text-center">
+              <div className="w-12 h-12 mx-auto mb-3 bg-green-100 dark:bg-green-900 rounded-2xl flex items-center justify-center">
+                <Syringe className="w-6 h-6 text-green-600" />
+              </div>
+              <p className="text-2xl font-bold text-gray-900 dark:text-white">
+                {vacinas.filter((v) => v.status === "em_dia").length}
+              </p>
+              <p className="text-sm text-gray-600 dark:text-gray-400">Vacinas em Dia</p>
+            </CardContent>
+          </Card>
+
+          <Card className="rounded-3xl border-0 shadow-lg">
+            <CardContent className="p-6 text-center">
+              <div className="w-12 h-12 mx-auto mb-3 bg-yellow-100 dark:bg-yellow-900 rounded-2xl flex items-center justify-center">
+                <AlertTriangle className="w-6 h-6 text-yellow-600" />
+              </div>
             <p className="text-2xl font-bold text-gray-900 dark:text-white">
               {vacinas.filter((v) => v.status === "vencendo").length}
             </p>
@@ -654,3 +737,80 @@ export function PetsPage() {
     </div>
   )
 }
+
+// Apply tenant isolation to the base component
+import { withTenantIsolation } from './with-tenant-isolation';
+
+// Export the component with tenant isolation applied
+export const PetsPage = withTenantIsolation(PetsPageBase, {
+  validateWithBackend: true,
+  requiredPermissions: ['view_pets'] // Add any required permissions for this page
+});   
+           </div>
+            </CardContent>
+          </Card>
+        </div>
+      )}
+
+      {!isLoading && !loadingError && (
+        <div className="grid grid-cols-1 sm:grid-cols-4 gap-6">
+          <Card className="rounded-3xl border-0 shadow-lg">
+            <CardContent className="p-6 text-center">
+              <div className="w-12 h-12 mx-auto mb-3 bg-cyan-100 dark:bg-cyan-900 rounded-2xl flex items-center justify-center">
+                <PawPrint className="w-6 h-6 text-cyan-600" />
+              </div>
+              <p className="text-2xl font-bold text-gray-900 dark:text-white">{pets.length}</p>
+              <p className="text-sm text-gray-600 dark:text-gray-400">Total de Pets</p>
+              {tenant && (
+                <p className="text-xs text-gray-500 mt-1">Tenant: {tenant.name}</p>
+              )}
+            </CardContent>
+          </Card>
+
+          <Card className="rounded-3xl border-0 shadow-lg">
+            <CardContent className="p-6 text-center">
+              <div className="w-12 h-12 mx-auto mb-3 bg-green-100 dark:bg-green-900 rounded-2xl flex items-center justify-center">
+                <Syringe className="w-6 h-6 text-green-600" />
+              </div>
+              <p className="text-2xl font-bold text-gray-900 dark:text-white">
+                {vacinas.filter((v) => v.status === "em_dia").length}
+              </p>
+              <p className="text-sm text-gray-600 dark:text-gray-400">Vacinas em Dia</p>
+            </CardContent>
+          </Card>
+
+          <Card className="rounded-3xl border-0 shadow-lg">
+            <CardContent className="p-6 text-center">
+              <div className="w-12 h-12 mx-auto mb-3 bg-yellow-100 dark:bg-yellow-900 rounded-2xl flex items-center justify-center">
+                <AlertTriangle className="w-6 h-6 text-yellow-600" />
+              </div>
+              <p className="text-2xl font-bold text-gray-900 dark:text-white">
+                {vacinas.filter((v) => v.status === "vencida").length}
+              </p>
+              <p className="text-sm text-gray-600 dark:text-gray-400">Vacinas Vencidas</p>
+            </CardContent>
+          </Card>
+
+          <Card className="rounded-3xl border-0 shadow-lg">
+            <CardContent className="p-6 text-center">
+              <div className="w-12 h-12 mx-auto mb-3 bg-orange-100 dark:bg-orange-900 rounded-2xl flex items-center justify-center">
+                <Heart className="w-6 h-6 text-orange-600" />
+              </div>
+              <p className="text-2xl font-bold text-gray-900 dark:text-white">
+                {historico.length}
+              </p>
+              <p className="text-sm text-gray-600 dark:text-gray-400">Atendimentos</p>
+            </CardContent>
+          </Card>
+        </div>
+      )}
+    </div>
+  )
+}
+
+// Export the component with tenant isolation
+export const PetsPage = withTenantIsolation(PetsPageBase, {
+  requiredPermissions: ['view_pets'],
+  validateWithBackend: true,
+  strictValidation: true
+});
